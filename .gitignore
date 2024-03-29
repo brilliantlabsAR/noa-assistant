@@ -1,0 +1,7 @@
+.env*
+*.exe
+*.txt
+*.json
+*.jpg
+*.png
+__pycache__
