@@ -4,22 +4,6 @@
 # Noa assistant server application. Provides /mm endpoint.
 #
 
-#
-# TODO
-# ----
-# - Context needs to be stored separately and persisted by Go layer and handed as part of the input.
-#   It cannot be stored in-memory here as it currently is in GPTAssistant.
-# - Context idea: we need to run context parsing sparingly because of latency and cost. E.g., every
-#   N messages. We need to return it to the client because we don't want to store personal user data
-#   on the server. Therefore, we probably need a new tool that triggers when GPT detects that some
-#   personal context might be requested. We can run context processing then. This will have to be
-#   carefully tuned not to fire too frequently.
-# - Need a try-catch around the tool call and anywhere json.loads() is used and more such error
-#   checking in general.
-# - Clean up prompts
-# - Need to test more follow-on questions to web searches.
-#
-
 from datetime import datetime
 from enum import Enum
 from io import BytesIO
