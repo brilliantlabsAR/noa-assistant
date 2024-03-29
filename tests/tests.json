@@ -1,0 +1,251 @@
+[
+    {
+        "active": true,
+        "name": "test1",
+        "default_image": "tests/images/black.jpg",
+        "conversations": [
+            [ "what is the weather today?" ],
+            [ "where can i buy this?" ],
+            [ "who makes these?" ],
+            [ "where can i go to eat something like this?" ],
+            [ "where can i buy this car?" ],
+            [ "what is apple's stock price?" ],
+            [ "what is weird about this scene?" ],
+            [ "what is this" ],
+            [ "translate this sign" ],
+            [ "what is weird about this scene?" ],
+            [ "translate this" ],
+            [ "what is this?" ],
+            [ "what is that?" ],
+            [ "what are those?" ],
+            [ "what are these?" ],
+            [ "who is that?" ],
+            [ "who is this?" ],
+            [ "who are they?" ]
+        ]
+    },
+    {
+        "active": true,
+        "name": "simple_image_queries",
+        "default_image": "tests/images/black.jpg",
+        "conversations": [
+            [ "what is apple's stock price?" ],
+            [ "who invented the light bulb?", "why are pencils sharp?" ],
+            [ "who invented light bulb" ],
+            [ "when did India gain independence" ],
+            [ "which fruits contain vitamin c" ],
+            [ "when is Einstein's birthday" ],
+            [ "why are pencils sharp" ],
+
+            [ "how many people in front of me?" ],
+            [ "what is weird about this scene?" ],
+            [ "translate this" ],
+            [ "what is this?" ],
+            [ "what is that?" ],
+            [ "what are those?" ],
+            [ "what are these?" ],
+            [ "who is that?" ],
+            [ "who is this?" ],
+            [ "who are they?" ],
+            [ "where can i buy this?" ],
+            [ "where can i buy that?" ],
+            [ "where can i buy these?" ],
+            [ "where can i buy those?" ],
+            [ "where can i buy this car?" ],
+            [ "where can i buy that car?" ],
+            [ "where can i buy these cars?" ],
+            [ "where can i buy a car?" ],
+            [ "how many calories in this" ],
+            [
+                "i just ate a cheeseburger from mcdonald's",
+                "how many calories does it have?"
+            ]
+        ]
+    },
+    {
+        "active": true,
+        "name": "sam_i_am",
+        "default_image": "tests/images/black.jpg",
+        "conversations": [
+            [ { "text": "what does this say?", "image": "tests/images/chinese_sign_1.webp" } ],
+            [ { "text": "translate this sign", "image": "tests/images/chinese_sign_2.webp" } ],
+            [ { "text": "describe the image", "image": "tests/images/boxing_equipment.webp" } ],
+            [ { "text": "what brand are these gloves", "image": "tests/images/winning_gloves.webp" } ],
+            [ { "text": "what does this say", "image": "tests/images/winning_gloves.webp" } ],
+            [ { "text": "what is this used for?", "image": "tests/images/agility_ladder.webp" } ],
+            [
+                { "text": "what does this say?", "image": "tests/images/chinese_sign_1.webp" },
+                { "text": "translate this sign", "image": "tests/images/chinese_sign_2.webp" },
+                { "text": "describe the image", "image": "tests/images/boxing_equipment.webp" },
+                { "text": "what brand are these gloves", "image": "tests/images/winning_gloves.webp" },
+                { "text": "what does this say", "image": "tests/images/winning_gloves.webp" },
+                { "text": "what is this used for?", "image": "tests/images/agility_ladder.webp" }
+            ],
+            [
+                { "text": "where does boxing come from?", "image": "tests/images/boxing_ring.webp" },
+                { "text": "what recent movies feature boxing?", "image": "tests/images/boxing_ring.webp" },
+                { "text": "were any boxing movies released post 2020?", "image": "tests/images/boxing_ring.webp" },
+                { "text": "what is this space used for?", "image": "tests/images/boxing_ring.webp" }
+            ]
+        ]
+    },
+    {
+        "active": true,
+        "name": "Bobak_GPT",
+        "default_image": "tests/images/black.jpg",
+        "conversations": [
+            [ "Who does Tucker Carlson currently work for?" ],
+
+            [ "how can i learn to be a more confident person?" ],
+            [ "what was the controversy surrounding pluto?" ],
+            [
+                "what is cerebral palsy and is there a known cure?",
+                "how about a change a diet, would that help?"
+            ],
+            [ "im a pediatrician living in san diego -- how much should i get paid and what is the estimated tax to be paid on that?" ],
+            [ "is there research which indicates what coffee is bad for the liver?" ],
+            [ 
+                "how are scented candles manufactured?",
+                "would it be more cost effective to manufacture them in the US or UK?"
+            ],
+            [ "why do iphones experience less OLED burn-in than Android phones even though they both use displays from Samsung?" ],
+            [ "my partner and i having a disagreement over when I should take paternity leave -- should should we resolve this?" ],
+            [ "my son is very interested in police and firemen but I'd like him to also be take interest in less stereotypically male things -- how should I do this?" ],
+            [
+                "list coffee beans by origin",
+                "which pair well with a walnut and fig scone?"
+            ]
+        ]
+    },
+    {
+        "active": false,
+        "name": "Bobak_web_search_location_based",
+        "default_image": "tests/images/black.jpg",
+        "conversations": [
+            [ 
+                "does this place get good reviews?",
+                "what are they known for?",
+                "has there been a health code violation in this place in the last month?"
+            ],
+            [
+                "is there a mattress available on craigslist for less than $50?"
+            ]
+        ]
+    },
+    {
+        "active": true,
+        "name": "Bobak_web_search",
+        "default_image": "tests/images/black.jpg",
+        "conversations": [
+            [ "who is openAI's newest board member?" ],
+            [ "how many israeli hostages are still being held by hamas in gaza?" ],
+            [ "how did Iran respond to pakistan's missile strike within its borders?" ],
+            [ "any labor rights issues associated with H&M recently?" ],
+            [ "how is nikki haley's polling right now?"]
+        ]
+    },
+    { 
+        "active": true,
+        "name": "Bobak_web_search_image",
+        "default_image": "tests/images/black.jpg",
+        "conversations": [
+            [ { "text": "where can i buy this screw for less than a dollar online?", "image": "tests/images/screw.jpg" } ]
+        ]
+    },
+    {
+        "active": true,
+        "name": "GPT_only",
+        "default_image": "tests/images/black.jpg",
+        "conversations": [
+            [
+                "how can i learn to be a more confident person?"
+            ],
+            [
+                "what was the controversy surrounding pluto?"
+            ],
+            [
+                "what is cerebral palsy and is there a known cure?",
+                "how about a change a diet, would that help?"
+            ],
+            [
+                " is there research which indicates what coffee is bad for the liver?"
+            ],
+            [
+                "how are scented candles manufactured?",
+                "would it be more cost effective to manufacture them in the US or UK?"
+            ],
+            [
+                "why do iphones experience less OLED burn-in than Android phones even though they both use displays from Samsung?"
+            ],
+            [
+                "my partner and i having a disagreement over when I should take paternity leave, how should we resolve this?"
+            ],
+            [
+                "my son is very interested in police and firemen but I'd like him to also be take interest in less stereotypically male things, how should I do this?"
+            ],
+            [
+                "list coffee beans by origin which pair well with a walnut and fig scone?"
+            ]
+        ]
+    },
+    {
+        "active": true,
+        "name": "morning_6_serpapi.com",
+        "default_image": "tests/images/black.jpg",
+        "conversations": [
+            [
+                "How cold is it right now? Is it raining, is it safe to run?",
+                "Suggest a new two mile running route for me",
+                "Any constructions/road work I should know about?"
+            ]
+        ]
+    },
+    {
+        "active": true,
+        "name": "morning_8_serpapi.com",
+        "default_image": "tests/images/black.jpg",
+        "conversations": [
+            [ "Give me an Apple News style summary of what's happening in new delhi" ]
+        ]
+    },
+    {
+        "active": true,
+        "name": "morning_6_GPT4",
+        "default_image":"tests/images/gym_setup.jpg",
+        "conversations": [
+            [
+                "Look at my gym set up, suggest a HIIT routine for me using the bike, the kettle balls and the bar",
+                "Create a visual representations of workout plan. Include diagrams of specific exercises, sets, and reps.",
+                "Can you log the calories burned from this workout"
+            ]
+        ]
+    },
+    {
+        "active": true,
+        "name": "image_search_mouse",
+        "default_image": "tests/images/hp_mouse_512x512.jpg",
+        "conversations": [
+            [ "where can i find this in the lowest price?" ]
+        ]
+    },
+    {
+        "active": true,
+        "name": "image_search_candle",
+        "default_image": "tests/images/black.jpg",
+        "conversations": [
+            [
+                { "text": "what is this?", "image": "tests/images/candle.jpg" },
+                "Where can I buy it?"
+            ]
+        ]
+    },
+    {
+        "active": true,
+        "name": "parking_sign",
+        "conversations": [
+            [
+                { "text": "it is 7:50 pm, can I park here right now?", "image": "tests/images/parking_sign.jpg" }
+            ]
+        ]
+    }
+]

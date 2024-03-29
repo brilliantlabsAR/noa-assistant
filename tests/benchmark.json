@@ -1,0 +1,189 @@
+[
+    {
+        "active": true,
+        "name": "standalone_conversations",
+        "default_image": "tests/images/black.jpg",
+        "conversations": [
+            [
+                { "text": "What's the weather like today?", "capabilities": [ "web_search" ] }
+            ],
+            [
+                { "text": "What am I doing?", "image": "tests/images/Zoom_Call.jpg", "capabilities": [ "vision" ] },
+                { "text": "How did you know?", "image": "tests/images/Zoom_Call.jpg", "capabilities": [ "vision" ] }
+            ],
+            [
+                { "text": "Who do you think made this piece of art?", "image": "tests/images/child_artwork.jpg", "capabilities": [ "reverse_image_search" ] },
+                { "text": "How old do you think this artist is?", "image": "tests/images/child_artwork.jpg", "capabilities": [ "vision" ] },
+                { "text": "Try to guess based on the nature of the art.", "image": "tests/images/child_artwork.jpg", "capabilities": [ "vision" ] }
+            ],
+            [
+                { "text": "How many beds are in this room?", "image": "tests/images/two_beds.jpg", "capabilities": [ "vision" ] },
+                { "text": "Try again. Are you sure there is only one bed?", "image": "tests/images/two_beds.jpg", "capabilities": [ "vision" ] },
+                { "text": "What's the best way I can make this bed to optimize for efficiency and process consistency on a daily basis?", "image": "tests/images/two_beds.jpg", "capabilities": [ "vision" ] },
+                { "text": "I'm not familiar with the military corner method. Can you please talk me through it step by step?", "capabilities_any": [ "assistant_knowledge", "web_search" ] }
+            ],
+            [
+                { "text": "What does this say and what do you think it means?", "image": "tests/images/motivational_sign.jpg", "capabilities": [ "vision" ] },
+                { "text": "What would be a different way to phrase this while still achieving the same meaning?", "image": "tests/images/motivational_sign.jpg", "capabilities": [ "assistant_knowledge" ] }
+            ],
+            [
+                { "text": "What culture style of carpeting weaving is this?", "image": "tests/images/persian_rug.jpg", "capabilities_any": [ "vision", "reverse_image_search" ] },
+                { "text": "Yes I understand that but what characteristics of the pattern itself indicate to you that this is a Persian style carpet?", "image": "tests/images/persian_rug.jpg", "capabilities_any": [ "vision", "reverse_image_search" ] }
+            ],
+            [
+                { "text": "How many different types of toys are strewn about this messy room?", "image": "tests/images/toys_strewn_about.jpg", "capabilities": [ "vision" ] },
+                { "text": "Interesting. Can you list them?", "image": "tests/images/toys_strewn_about.jpg", "capabilities": [ "vision" ] }
+            ],
+            [
+                { "text": "Who made this car?", "image": "tests/images/toy_car.jpg", "capabilities": [ "reverse_image_search" ] },
+                { "text": "Which country has the most police cars Noa?", "image": "tests/images/toy_car.jpg", "capabilities": [ "web_search" ] },
+                { "text": "How many police cars does it have?", "image": "tests/images/toy_car.jpg", "capabilities": [ "web_search" ] },
+                { "text": "Try to make an educated guess based on what you know", "image": "tests/images/toy_car.jpg", "capabilities": [ "web_search" ] },
+                { "text": "I am asking you to simply guess. Don't overthink it.", "image": "tests/images/toy_car.jpg", "capabilities": [ "web_search" ] }
+            ],
+            [
+                { "text": "How many stairs do you count?", "image": "tests/images/staircase.jpg", "capabilities": [ "vision" ] },
+                { "text": "What material does it look like the stairs are made out of?", "image": "tests/images/staircase.jpg", "capabilities": [ "vision" ] }
+            ],
+            [
+                { "text": "How could this track be improved?", "image": "tests/images/toy_track_incomplete.jpg", "capabilities": [ "vision" ] },
+                { "text": "How about the shape and design of the track?", "image": "tests/images/toy_track_incomplete.jpg", "capabilities": [ "vision" ] }
+            ],
+            [
+                { "text": "What interior design style do you see here?", "image": "tests/images/living_room.jpg", "capabilities": [ "vision" ] },
+                { "text": "How do you think I could further improve the beauty and functionality of this space?", "image": "tests/images/living_room.jpg", "capabilities": [ "vision" ] }
+            ],
+            [
+                { "text": "What is this and what do you think it's used for?", "image": "tests/images/pickled_snake.jpg", "capabilities": [ "reverse_image_search" ] }
+            ],
+            [
+                { "text": "Do you know who this train is?", "image": "tests/images/thomas_the_train.jpg", "capabilities": [ "reverse_image_search" ] }
+            ],
+            [
+                { "text": "How would you describe the weather today?", "image": "tests/images/dreary_day.jpg", "capabilities_any": [ "vision", "web_search" ] },
+                { "text": "Try again. Look at the sky.", "image": "tests/images/dreary_day.jpg", "capabilities": [ "vision" ] }
+            ],
+            [
+                { "text": "What plant is this and how do I take care of it?", "image": "tests/images/house_plant.jpg", "capabilities": [ "reverse_image_search" ] }
+            ],
+            [
+                { "text": "What are the directions to play this game?", "image": "tests/images/candyland.jpg", "capabilities": [ "reverse_image_search" ] }
+            ],
+            [
+                { "text": "Is this person dressed appropriately for the weather?", "image": "tests/images/bobak_dressed_for_weather.jpg", "capabilities": [ "vision" ] },
+                { "text": "How old does he look?", "image": "tests/images/bobak_dressed_for_weather.jpg", "capabilities": [ "vision" ] },
+                { "text": "Just take a guess based purely on what you see.", "image": "tests/images/bobak_dressed_for_weather.jpg", "capabilities": [ "vision" ] },
+                { "text": "Simply guess, it's ok to make a mistake.", "image": "tests/images/bobak_dressed_for_weather.jpg", "capabilities": [ "vision" ] },
+                { "text": "What led you to guess the person is in their mid 30's?", "image": "tests/images/bobak_dressed_for_weather.jpg", "capabilities": [ "vision" ] },
+                { "text": "Unpack that, please. Tell me more.", "image": "tests/images/bobak_dressed_for_weather.jpg", "capabilities": [ "vision" ] }
+            ],
+            [
+                { "text": "What kind of flowers are these and is there a place nearby where I can buy them?", "image": "tests/images/flower_arrangement.jpg", "capabilities_any": [ "vision", "reverse_image_search" ] },
+                { "text": "How much do you think they would be for a bouquet?", "image": "tests/images/flower_arrangement.jpg", "capabilities_any": [ "reverse_image_search", "web_search" ] }
+            ],
+            [
+                { "text": "What do these paintings say about the psychological state of the artist?", "image": "tests/images/colorful_landscape_paintings.jpg", "capabilities": [ "vision" ] }
+            ],
+            [
+                { "text": "What's a good interface modality for a pair of smart glasses like these?", "image": "tests/images/frame_smart_glasses.jpg", "capabilities_any": [ "vision", "reverse_image_search" ] }
+            ],
+            [
+                { "text": "What does this say?", "image": "tests/images/STEM_card_Chinese.jpg", "capabilities": [ "vision" ] },
+                { "text": "OK but can you translate the Chinese into English?", "image": "tests/images/STEM_card_Chinese.jpg", "capabilities": [ "vision" ] },
+                { "text": "What does this say?", "image": "tests/images/STEM_card_Chinese_closeup.jpg", "capabilities": [ "vision" ] },
+                { "text": "How about the larger characters? Can you translate those to English?", "image": "tests/images/STEM_card_Chinese_closeup.jpg", "capabilities": [ "vision" ] },
+                { "text": "That is incorrect. Try again.", "image": "tests/images/STEM_card_Chinese_closeup.jpg", "capabilities": [ "vision" ] }
+            ],
+            [
+                { "text": "Describe this and any cultural meaning.", "image": "tests/images/chinese_dragon.jpg", "capabilities": [ "vision" ] },
+                { "text": "That's really cool, is this the year of the dragon?", "image": "tests/images/chinese_dragon.jpg", "capabilities": [ "assistant_knowledge", "web_search" ] }
+            ],
+            [
+                { "text": "How many cars do you see and what kind of cars are they?", "image": "tests/images/cars_behind_wall.jpg", "capabilities": [ "vision" ] }
+            ],
+            [
+                { "text": "How many golf balls can fit in this trash can?", "image": "tests/images/small_trash_can.jpg", "capabilities": [ "vision" ] }
+            ],
+            [
+                { "text": "What is this book about and where can I get it?", "image": "tests/images/book_viral_justice.jpg", "capabilities": [ "reverse_image_search" ] }
+            ],
+            [
+                { "text": "What is this about and where can I get it?", "image": "tests/images/book_atomic_habits.jpg", "capabilities": [ "reverse_image_search" ] }
+            ],
+            [
+                { "text": "What is this and where can I get it?", "image": "tests/images/airpod_case.jpg", "capabilities": [ "reverse_image_search" ] }
+            ],
+            [
+                { "text": "What is this and where can I get it?", "image": "tests/images/airpod_case_open.jpg", "capabilities": [ "reverse_image_search" ] },
+                { "text": "Who makes these earpods and what are they called?", "image": "tests/images/airpod_case_open.jpg", "capabilities": [ "reverse_image_search" ] }
+            ],
+            [
+                { "text": "Who makes this hat?", "image": "tests/images/ua_hat.jpg", "capabilities": [ "reverse_image_search" ] },
+                { "text": "Try analyzing the logo on the hat as a clue to who the manufacturer might be.", "image": "tests/images/ua_hat.jpg", "capabilities": [ "reverse_image_search" ] }
+            ],
+            [
+                { "text": "What is the weather forecast for Beijing tonight?", "capabilities": [ "web_search" ] },
+                { "text": "Is it going to rain?", "capabilities": [ "web_search" ] },
+                { "text": "Thanks, ok, then I will bring my pet lovebird inside. Her name is Sunny. What's an alternative quirky name that I could give her which is reminiscent of funk Shakespearean pop?", "capabilities": [ "assistant_knowledge" ] },
+                { "text": "That name is absolutely rad. What was your inspiration?", "capabilities": [ "assistant_knowledge" ] }
+            ],
+            [
+                { "text": "What kind of dog is this and why would it be dressed that way?", "image": "tests/images/pug_asian_clothing.jpg", "capabilities_any": [ "vision", "reverse_image_search" ] },
+                { "text": "My wife and I have been married for 10 years and our eldest child is 6. How long were we married before we had our first child?", "capabilities": [ "assistant_knowledge" ] }
+            ],
+            [
+                { "text": "Which actor is this?", "image": "tests/images/some_old_actor.jpg", "capabilities": [ "reverse_image_search" ] }
+            ],
+            [
+                { "text": "What can you make with these ingredients?", "image": "tests/images/eggs_banana_avocado.jpg", "capabilities_any": [ "vision", "reverse_image_search" ] }
+            ],
+            [
+                { "text": "Can you give me a nuitritional breakdown of this?", "image": "tests/images/popcorn.jpg", "capabilities_any": [ "vision", "reverse_image_search" ] }
+            ],
+            [
+                { "text": "Who designed this building?", "image": "tests/images/Wangjing_Soho.jpg", "capabilities": [ "reverse_image_search" ] }
+            ],
+            [
+                { "text": "How tall is this figurine?", "image": "tests/images/figurine_on_table.jpg", "capabilities": [ "vision" ] }
+            ],
+            [
+                { "text": "it is 7:50 pm, can I park here right now?", "image": "tests/images/parking_sign.jpg", "capabilities": [ "vision" ] }
+            ],
+            [
+                { "text": "What is Apple's stock price?", "capabilities": [ "web_search" ] },
+                { "text": "Why has it been performing the way it has?", "capabilities": [ "web_search" ] }
+            ]
+        ]
+    },
+    {
+        "active": true,
+        "name": "mixed_conversations",
+        "default_image": "tests/images/black.jpg",
+        "conversations": [
+            [
+                { "text": "What can you make with these ingredients?", "image": "tests/images/eggs_banana_avocado.jpg", "capabilities_any": [ "vision", "reverse_image_search" ] },
+                { "text": "Describe this and any cultural meaning.", "image": "tests/images/chinese_dragon.jpg", "capabilities": [ "vision" ] }
+            ],
+            [
+                { "text": "What are the directions to play this game?", "image": "tests/images/candyland.jpg", "capabilities": [ "reverse_image_search" ]  },
+                { "text": "How many stairs do you count?", "image": "tests/images/staircase.jpg", "capabilities": [ "vision" ]  }
+            ],
+            [
+                { "text": "What kind of flowers are these and is there a place nearby where I can buy them?", "image": "tests/images/flower_arrangement.jpg", "capabilities_any": [ "vision", "reverse_image_search" ] },
+                { "text": "How much do you think they would be for a bouquet?", "image": "tests/images/flower_arrangement.jpg", "capabilities_any": [ "web_search", "reverse_image_search" ] },
+                { "text": "What am I doing?", "image": "tests/images/Zoom_Call.jpg", "capabilities": [ "vision" ] }
+            ],
+            [
+                { "text": "What does this say?", "image": "tests/images/chinese_sign_1.webp", "capabilities": [ "vision" ] },
+                { "text": "What brand are these gloves?", "image": "tests/images/winning_gloves.webp", "capabilities_any": [ "vision", "reverse_image_search" ] },
+                { "text": "What are they used for?", "capabilities": [ "web_search" ] }
+            ],
+            [
+                { "text": "How many cars do you see and what kind of cars are they?", "image": "tests/images/cars_behind_wall.jpg", "capabilities": [ "vision" ] },
+                { "text": "How many golf balls can fit in this trash can?", "image": "tests/images/small_trash_can.jpg", "capabilities": [ "vision" ] },
+                { "text": "What's the latest on Moscow?", "capabilities": [ "web_search" ] },
+                { "text": "What is this?", "image": "tests/images/candle.jpg", "capabilities": [ "vision" ] }
+            ]
+        ]
+    }       
+]
