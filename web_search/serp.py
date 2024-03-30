@@ -224,7 +224,7 @@ class KnowledgeGraph(BaseModel):
     founded : str = None
     rating: float = None
     review_count: int = None
-    service_options: List[str] = None
+    service_options: List[str]|str = None
     address: str = None
     raw_hours: str = None
     popular_times: PopularTime = None
@@ -759,7 +759,10 @@ class SerpAPIResponse(BaseModel):
                 summry +=f"founded :{self.knowledge_graph.founded}\n" if self.knowledge_graph.founded else ""
                 summry +=f"rating :{self.knowledge_graph.rating}\n" if self.knowledge_graph.rating else ""
                 summry +=f"review_count :{self.knowledge_graph.review_count}\n" if self.knowledge_graph.review_count else ""
-                summry +=f"service_options :{','.join(self.knowledge_graph.service_options)}\n" if self.knowledge_graph.service_options else ""
+                if isinstance(self.knowledge_graph.service_options, list):
+                    summry +=f"service_options :{','.join(self.knowledge_graph.service_options)}\n" if self.knowledge_graph.service_options else ""
+                else:
+                    summry +=f"service_options :{self.knowledge_graph.service_options}\n" if self.knowledge_graph.service_options else ""
                 summry +=f"address :{self.knowledge_graph.address}\n" if self.knowledge_graph.address else ""
                 summry +=f"raw_hours :{self.knowledge_graph.raw_hours}\n" if self.knowledge_graph.raw_hours else ""
                 summry +=f"merchant_description :{self.knowledge_graph.merchant_description}\n" if self.knowledge_graph.merchant_description else ""
@@ -789,7 +792,12 @@ def SerpAPISearch(query: str, engine: str="google", use_photo: bool = False, ima
     if save_to_file:
         with open(save_to_file, "w") as f:
             json.dump(response_obj.as_dict(), f, indent=4)
-    resp: SerpAPIResponse = SerpAPIResponse.model_validate(response_obj)
+    try:
+        resp: SerpAPIResponse = SerpAPIResponse.model_validate(response_obj)
+    except Exception as e:
+        print(f"Failed to validate response: {e}")
+        print(response_obj)
+        return "No result found"
     return resp
 
 def upload_image_to_cdn(image_bytes: bytes) -> str | None:
