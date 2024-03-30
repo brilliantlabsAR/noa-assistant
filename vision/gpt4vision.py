@@ -10,6 +10,7 @@ from typing import Dict
 import openai
 
 from .vision import Vision
+from .utils import detect_media_type
 from models import TokenUsage, accumulate_token_usage
 
 
@@ -31,7 +32,8 @@ class GPT4Vision(Vision):
         
         if image_bytes:
             image_base64 = base64.b64encode(image_bytes).decode("utf-8")
-            messages[1]["content"].append({ "type": "image_url", "image_url": { "url": f"data:image/png;base64,{image_base64}" } }),
+            media_type = detect_media_type(image_bytes=image_bytes)
+            messages[1]["content"].append({ "type": "image_url", "image_url": { "url": f"data:{media_type};base64,{image_base64}" } }),
         
         response = self._client.chat.completions.create(
             model=self._model,
