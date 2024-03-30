@@ -82,10 +82,10 @@ def get_web_search_provider(app, mm: MultimodalRequest) -> WebSearch:
 
 def get_vision_provider(app, mm: MultimodalRequest) -> Vision:
     # Use provider specified 
-    if mm.vision_model == VisionModel.GPT4Vision:
+    if mm.vision == VisionModel.GPT4Vision:
         return GPT4Vision(client=app.state.openai_client)
-    elif mm.vision_model in [VisionModel.CLAUDE_HAIKU, VisionModel.CLAUDE_SONNET, VisionModel.CLAUDE_OPUS]:
-        return ClaudeVision(client=app.state.anthropic_client, model=mm.vision_model)
+    elif mm.vision in [VisionModel.CLAUDE_HAIKU, VisionModel.CLAUDE_SONNET, VisionModel.CLAUDE_OPUS]:
+        return ClaudeVision(client=app.state.anthropic_client, model=mm.vision)
     
     # Default provider
     return app.state.vision
