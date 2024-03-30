@@ -58,8 +58,8 @@ class PerplexityAssistant(Assistant):
         message_history: List[Message] | None, 
         local_time: str | None,
         location_address: str | None,
-        web_search: WebSearch | None = None,
-        vision: Vision | None = None
+        web_search: WebSearch,
+        vision: Vision
     ) -> AssistantResponse:
         # Prepare response datastructure
         returned_response = AssistantResponse(token_usage_by_model={}, capabilities_used=[ Capability.ASSISTANT_KNOWLEDGE ], response="", debug_tools="")

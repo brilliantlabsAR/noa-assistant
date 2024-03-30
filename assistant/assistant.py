@@ -30,7 +30,37 @@ class Assistant(ABC):
         message_history: List[Message] | None, 
         local_time: str | None,
         location_address: str | None,
-        web_search: WebSearch | None = None,
-        vision: Vision | None = None,
+        web_search: WebSearch,
+        vision: Vision,
     ) -> AssistantResponse:
+        """
+        Sends a message from user to assistant.
+
+        Parameters
+        ----------
+        prompt : str
+            User message.
+        image_bytes : bytes | None
+            Image of what user is looking at.
+        message_history : List[Mesage] | None
+            Conversation history, excluding current user message we will run inference on.
+        local_time : str | None
+            User's local time in a human-readable format, which helps the LLM answer questions where
+            the user indirectly references the date or time. E.g.,
+            "Saturday, March 30, 2024, 1:21 PM".
+        location_address : str | None
+            User's current location, specified as a full or partial address. This provides context
+            to the LLM and is especially useful for web searches. E.g.,
+            "3985 Stevens Creek Blvd, Santa Clara, CA 95051".
+        web_search : WebSearch
+            Web search provider, invoked when a web search (including a reverse image search) is
+            needed.
+        vision : Vision
+            Vision AI provider, invoked when understanding of what user is looking at is required.
+
+        Returns
+        -------
+        AssistantResponse
+            Assistant response (text and some required analytics).
+        """
         pass

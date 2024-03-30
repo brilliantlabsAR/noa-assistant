@@ -55,7 +55,7 @@ seeing at the time they spoke but you NEVER mention the photo or image and inste
 are actually seeing.
 
 The camera is unfortunately VERY low quality but the user is counting on you to interpret the
-blurry, pixelated images. NEVER comment on image quality. Do you best with images.
+blurry, pixelated images. NEVER comment on image quality. Do your best with images.
 
 Make your responses short (one or two sentences) and precise. Respond without any preamble when giving
 translations, just translate directly. When analyzing the user's view, speak as if you can actually
@@ -298,9 +298,16 @@ def handle_general_knowledge_tool(
     location: str | None = None,
     learned_context: Dict[str,str] | None = None,
 ) -> str:
-    # Return nothing so that LLM is forced to use its own output. This dummy tool exists as a
-    # "catch all" for things that the LLM should know but would otherwise try to use the real
-    # web search tool for.
+    """
+    Dummy general knowledge tool that tricks GPT into generating an answer directly instead of
+    reaching for web search. GPT knows that the web contains information on virtually everything, so
+    it tends to overuse web search. One solution is to very carefully enumerate the cases for which
+    web search is appropriate, but this is tricky. Should "Albert Einstein's birthday" require a web
+    search? Probably not, as GPT has this knowledge baked in. The trick we use here is to create a
+    "general knowledge" tool that contains any information Wikipedia or an encyclopedia would have
+    (a reasonable proxy for things GPT knows). We return an empty string, which forces GPT to
+    produce its own response at the expense of a little bit of latency for the tool call.
+    """
     return ""
 
 @staticmethod
@@ -396,6 +403,7 @@ class GPTAssistant(Assistant):
         self._client = client
         self._model = model
 
+    # Refer to definition of Assistant for description of parameters
     def send_to_assistant(
         self,
         prompt: str,
@@ -403,8 +411,8 @@ class GPTAssistant(Assistant):
         message_history: List[Message] | None,
         location_address: str | None,
         local_time: str | None,
-        web_search: WebSearch | None = None,
-        vision: Vision | None = None
+        web_search: WebSearch,
+        vision: Vision
     ) -> AssistantResponse:
         start = timeit.default_timer()
 
@@ -517,6 +525,21 @@ class GPTAssistant(Assistant):
 
     @staticmethod
     def _prune_history(message_history: List[Message]) -> List[Message]:
+        """
+        Prunes down the chat history to save tokens, improving inference speed and reducing cost.
+        Generally, preserving all assistant responses is not needed, and only a limited number of
+        user messages suffice to maintain a coherent conversation.
+
+        Parameters
+        ----------
+        message_history : List[Message]
+            Conversation history. This list will be mutated and returned.
+
+        Returns
+        -------
+        List[Message]
+            Pruned history. This is the same list passed as input.
+        """
         # Limit to most recent 5 user messages and 3 assistant responses
         assistant_messages_remaining = 3
         user_messages_remaining = 5
@@ -542,6 +565,27 @@ class GPTAssistant(Assistant):
 
     @staticmethod
     def _create_context_system_message(local_time: str | None, location: str | None, learned_context: Dict[str,str] | None) -> str:
+        """
+        Creates a string of additional context that can either be appended to the main system
+        message or as a secondary system message before delivering the assistant response. This is
+        how GPT is made aware of the user's location, local time, and any learned information that
+        was extracted from prior conversation.
+
+        Parameters
+        ----------
+        local_time : str | None
+            Local time, if known.
+        location : str | None
+            Location, as a human readable address, if known.
+        learned_context : Dict[str,str] | None
+            Information learned from prior conversation as key-value pairs, if any.
+
+        Returns
+        -------
+        str
+            Message to combine with existing system message or to inject as a new, extra system
+            message.
+        """
         # Fixed context: things we know and need not extract from user conversation history
         context: Dict[str, str] = {}
         if local_time is not None:

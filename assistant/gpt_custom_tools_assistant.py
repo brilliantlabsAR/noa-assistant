@@ -136,8 +136,8 @@ class GPTCustomToolsAssistant(Assistant):
         message_history: List[Message] | None, 
         location_address: str | None,
         local_time: str | None,
-        web_search: WebSearch | None = None,
-        vision: Vision | None = None
+        web_search: WebSearch,
+        vision: Vision
     ) -> AssistantResponse:
         start = timeit.default_timer()
 
