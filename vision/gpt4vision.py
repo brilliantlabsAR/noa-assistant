@@ -1,14 +1,13 @@
-import base64
-
-import openai
-
 #
 # gpt4vision.py
 #
 # Vision tool implementation based on GPT-4.
 #
 
+import base64
 from typing import Dict
+
+import openai
 
 from .vision import Vision
 from models import TokenUsage, accumulate_token_usage

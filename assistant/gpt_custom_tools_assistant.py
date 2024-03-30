@@ -5,6 +5,9 @@
 # separate web search and vision tools, which are handled with a custom approach that avoids using
 # function calling and should therefore be portable to other comparable LLMs.
 #
+# NOTE: This is not currently ready for use and is purely experimental. See gpt_assistant.py for a
+# functional assistant using OpenAI's function calling API.
+#
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
