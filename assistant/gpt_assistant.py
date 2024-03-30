@@ -351,6 +351,13 @@ class GPTAssistant(Assistant):
     ) -> str | WebSearchResult:
         extra_context = "\n\n" + GPTAssistant._create_context_system_message(local_time=local_time, location=location, learned_context=learned_context)
 
+        # If no image bytes (glasses always send image but web playgrounds do not), return an error
+        # message for the assistant to use
+        if image_bytes is None or len(image_bytes) == 0:
+            # Because this is a tool response, using "tell user" seems to ensure that the final 
+            # assistant response is what we want
+            return "Error: no photo supplied. Tell user: I think you're referring to something you can see. Can you provide a photo?"
+
         # Reverse image search? Use vision tool -> search query, then search.
         # Translation special case: never use reverse image search for it. 
         # NOTE: We do not pass history for now but maybe we should in some cases?
