@@ -5,3 +5,4 @@
 *.jpg
 *.png
 __pycache__
+dev_deploy.sh
