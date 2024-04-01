@@ -196,7 +196,7 @@ if __name__ == "__main__":
 
     # AI clients
     app.state.openai_client = openai.AsyncOpenAI()
-    app.state.anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    app.state.anthropic_client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
 
     # Instantiate a web search provider
     app.state.web_search = None

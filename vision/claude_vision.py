@@ -16,7 +16,7 @@ from models import TokenUsage, accumulate_token_usage
 
 
 class ClaudeVision(Vision):
-    def __init__(self, client:anthropic.Anthropic, model:str="claude-3-haiku-20240307"):
+    def __init__(self, client: anthropic.AsyncAnthropic, model: str="claude-3-haiku-20240307"):
         self._client = client
         self._model = model
     
@@ -43,7 +43,7 @@ class ClaudeVision(Vision):
             }   
         ]
 
-        response = self._client.messages.create(
+        response = await self._client.messages.create(
             model=self._model,
             system=system_message,
             messages=messages,
