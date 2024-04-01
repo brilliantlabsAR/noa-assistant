@@ -8,6 +8,11 @@
                 { "text": "What's the weather like today?", "capabilities": [ "web_search" ] }
             ],
             [
+                { "text": "What time is it?", "capabilities": [ "assistant_knowledge" ] },
+                { "text": "What about now?", "capabilities": [ "assistant_knowledge" ] },
+                { "text": "And now?", "capabilities": [ "assistant_knowledge" ] }
+            ],
+            [
                 { "text": "What am I doing?", "image": "tests/images/Zoom_Call.jpg", "capabilities": [ "vision" ] },
                 { "text": "How did you know?", "image": "tests/images/Zoom_Call.jpg", "capabilities": [ "vision" ] }
             ],
