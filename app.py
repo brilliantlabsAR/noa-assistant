@@ -191,7 +191,7 @@ if __name__ == "__main__":
     parser.add_argument("--assistant", action="store", default="gpt", help="Assistant to use (gpt or perplexity)")
     parser.add_argument("--server", action="store_true", help="Start server")
     parser.add_argument("--image", action="store", help="Image filepath for image query")
-    parser.add_argument("--vision", action="store", help="Vision model to use (gpt-4-vision-preview, claude-3-haiku-20240307, claude-3-sonnet-20240229, claude-3-opus-20240229)", default="gpt-4-vision-preview")
+    parser.add_argument("--vision", action="store", help="Vision model to use (gpt-4-vision-preview, claude-3-haiku-20240307, claude-3-sonnet-20240229, claude-3-opus-20240229)", default="claude-3-haiku-20240307")
     options = parser.parse_args()
 
     # AI clients
