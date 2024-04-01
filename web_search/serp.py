@@ -814,7 +814,7 @@ class SerpWebSearch(WebSearch):
         self._engine = engine
         self._max_search_results = max_search_results
     
-    def search_web(self, query: str, use_photo: bool = False, image_bytes: bytes | None = None, location: str | None = None, uule: str | None = None) -> WebSearchResult:
+    async def search_web(self, query: str, use_photo: bool = False, image_bytes: bytes | None = None, location: str | None = None, uule: str | None = None) -> WebSearchResult:
         uule = uule_grabber.uule(location)
         image_url = upload_image_to_cdn(image_bytes=image_bytes) if image_bytes else None
         serp_response = SerpAPISearch(query, engine=self._engine, use_photo=use_photo, image_url=image_url, save_to_file=self._save_to_file, uule=uule)

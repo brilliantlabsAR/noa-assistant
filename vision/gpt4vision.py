@@ -15,11 +15,11 @@ from models import TokenUsage, accumulate_token_usage
 
 
 class GPT4Vision(Vision):
-    def __init__(self, client: openai.OpenAI, model: str = "gpt-4-vision-preview"):
+    def __init__(self, client: openai.AsyncOpenAI, model: str = "gpt-4-vision-preview"):
         self._client = client
         self._model = model
     
-    def query_image(self, system_message: str, query: str, image_bytes: bytes | None, token_usage_by_model: Dict[str, TokenUsage]) -> str:
+    async def query_image(self, system_message: str, query: str, image_bytes: bytes | None, token_usage_by_model: Dict[str, TokenUsage]) -> str:
         messages = [
             { "role": "system", "content": system_message },
             {
@@ -35,7 +35,7 @@ class GPT4Vision(Vision):
             media_type = detect_media_type(image_bytes=image_bytes)
             messages[1]["content"].append({ "type": "image_url", "image_url": { "url": f"data:{media_type};base64,{image_base64}" } }),
         
-        response = self._client.chat.completions.create(
+        response = await self._client.chat.completions.create(
             model=self._model,
             messages=messages,
             max_tokens=4096

@@ -148,7 +148,7 @@ class DataForSEOWebSearch(WebSearch):
         self._max_search_results = max_search_results
 
     # DataForSEO does not have reverse image search, so photos are always ignored
-    def search_web(self, query: str, use_photo: bool = False, image_bytes: bytes | None = None, location: str | None = None) -> WebSearchResult:
+    async def search_web(self, query: str, use_photo: bool = False, image_bytes: bytes | None = None, location: str | None = None) -> WebSearchResult:
         if location:
             # DataForSEO expects lat,long+
             location_coords = geopy.geocoders.Nominatim(user_agent="GetLoc").geocode(location)

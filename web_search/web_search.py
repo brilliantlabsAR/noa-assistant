@@ -28,7 +28,7 @@ class WebSearchResult:
 
 class WebSearch(ABC):
     @abstractmethod
-    def search_web(self, query: str, use_photo: bool = False, image_bytes: bytes | None = None, location: str | None = None) -> WebSearchResult:
+    async def search_web(self, query: str, use_photo: bool = False, image_bytes: bytes | None = None, location: str | None = None) -> WebSearchResult:
         pass
 
 

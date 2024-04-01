@@ -24,7 +24,7 @@ class AssistantResponse:
 
 class Assistant(ABC):
     @abstractmethod
-    def send_to_assistant(
+    async def send_to_assistant(
         prompt: str,
         image_bytes: bytes | None, 
         message_history: List[Message] | None, 

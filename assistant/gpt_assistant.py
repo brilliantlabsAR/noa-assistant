@@ -8,7 +8,11 @@
 #
 # TODO:
 # -----
-# - Need everything to be made async.
+# - Tools can be handled in parallel, asynchronously. It is rare for multiple tools to be invoked
+#   but it can occasionally happen.
+# - Web search needs to be made asynchronous as this takes a lot of time.
+# - Move to streaming completions and detect timeouts when a threshold duration elapses since the
+#   the last token was emitted.
 # - Figure out how to get assistant to stop referring to "photo" and "image" when analyzing photos.
 # - Improve people search.
 #
@@ -174,7 +178,7 @@ Use this tool if user refers to something not identifiable from conversation con
     },
 ]
 
-def handle_tool(
+async def handle_tool(
     tool_call: ChatCompletionMessageToolCall,
     user_message: str,
     image_bytes: bytes | None,
@@ -213,7 +217,7 @@ def handle_tool(
     )
 
     tool_start_time = timeit.default_timer()
-    function_response: WebSearchResult | str = function_to_call(**function_args)
+    function_response: WebSearchResult | str = await function_to_call(**function_args)
     total_tool_time = round(timeit.default_timer() - tool_start_time, 3)
 
     # Record capability used (except for case of photo tool, which reports on its own because it
@@ -291,7 +295,7 @@ def prepare_tool_arguments(
 
     return args
 
-def handle_general_knowledge_tool(
+async def handle_general_knowledge_tool(
     query: str,
     image_bytes: bytes | None = None,
     local_time: str | None = None,
@@ -311,7 +315,7 @@ def handle_general_knowledge_tool(
     return ""
 
 @staticmethod
-def handle_photo_tool(
+async def handle_photo_tool(
     query: str,
     vision: Vision,
     web_search: WebSearch,
@@ -339,7 +343,7 @@ def handle_photo_tool(
     if google_reverse_image_search and not translate:
         capabilities_used.append(Capability.REVERSE_IMAGE_SEARCH)
         system_prompt = VISION_GENERATE_REVERSE_IMAGE_SEARCH_QUERY_FROM_PHOTO_SYSTEM_MESSAGE + extra_context
-        vision_response = vision.query_image(
+        vision_response = await vision.query_image(
             system_message=system_prompt,
             query=query,
             image_bytes=image_bytes,
@@ -350,7 +354,7 @@ def handle_photo_tool(
     # Just use vision tool
     capabilities_used.append(Capability.VISION)
     system_prompt = VISION_PHOTO_DESCRIPTION_SYSTEM_MESSAGE + extra_context
-    response = vision.query_image(
+    response = await vision.query_image(
         system_message=system_prompt,
         query=query,
         image_bytes=image_bytes,
@@ -399,11 +403,11 @@ def create_hallucinated_tool_info_object(function_name: str) -> Dict[str, str]:
 ####################################################################################################
 
 class GPTAssistant(Assistant):
-    def __init__(self, client: openai.OpenAI):
+    def __init__(self, client: openai.AsyncOpenAI):
         self._client = client
 
     # Refer to definition of Assistant for description of parameters
-    def send_to_assistant(
+    async def send_to_assistant(
         self,
         prompt: str,
         image_bytes: bytes | None,
@@ -443,14 +447,14 @@ class GPTAssistant(Assistant):
         # Update learned context by analyzing last N messages.
         # TODO: this was for demo purposes and needs to be made more robust. Should be triggered
         #       periodically or when user asks something for which context is needed.
-        #learned_context.update(self._extract_learned_context(message_history=message_history, model=model, token_usage_by_model=returned_response.token_usage_by_model))
+        #learned_context.update(await self._extract_learned_context(message_history=message_history, model=model, token_usage_by_model=returned_response.token_usage_by_model))
         learned_context = {}
 
         # Inject context into our copy by appending it to system message
         message_history[0].content += "\n\n" + self._create_context_system_message(local_time=local_time, location=location_address, learned_context=learned_context)
 
         # Initial GPT call, which may request tool use
-        first_response = self._client.chat.completions.create(
+        first_response = await self._client.chat.completions.create(
             model=model,
             messages=message_history,
             tools=TOOLS,
@@ -479,7 +483,7 @@ class GPTAssistant(Assistant):
 
             # Invoke each tool
             for tool_call in first_response_message.tool_calls:
-                tool_output = handle_tool(
+                tool_output = await handle_tool(
                     tool_call=tool_call,
                     user_message=prompt,
                     image_bytes=image_bytes,
@@ -504,7 +508,7 @@ class GPTAssistant(Assistant):
                 )
 
             # Get final response from model
-            second_response = self._client.chat.completions.create(
+            second_response = await self._client.chat.completions.create(
                 model=model,
                 messages=message_history
             )
@@ -608,7 +612,7 @@ class GPTAssistant(Assistant):
         system_message_fragment = CONTEXT_SYSTEM_MESSAGE_PREFIX + "\n".join([ f"<{key}>{value}</{key}>" for key, value in context.items() if value is not None ])
         return system_message_fragment
 
-    def _extract_learned_context(self, message_history: List[Message], model: str, token_usage_by_model: Dict[str, TokenUsage]) -> Dict[str,str]:
+    async def _extract_learned_context(self, message_history: List[Message], model: str, token_usage_by_model: Dict[str, TokenUsage]) -> Dict[str,str]:
         # Grab last N user messages
         max_user_history = 2
         messages: List[Message] = []
@@ -625,7 +629,7 @@ class GPTAssistant(Assistant):
         # print(messages)
 
         # Process
-        response = self._client.chat.completions.create(
+        response = await self._client.chat.completions.create(
             model=model,
             messages=messages
         )
