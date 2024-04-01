@@ -270,10 +270,14 @@ class GPTCustomToolsAssistant(Assistant):
     def _create_context_system_message(local_time: str | None, location: str | None, learned_context: Dict[str,str] | None) -> str:
         # Fixed context: things we know and need not extract from user conversation history
         context: Dict[str, str] = {}
-        if local_time is not None:
+        if local_time is not None and len(local_time) > 0:
             context["current_time"] = local_time
-        if location is not None:
+        else:
+            context["current_time"] = "If asked, tell user you don't know current date or time because clock is broken"
+        if location is not None and len(location) > 0:
             context["location"] = location
+        else:
+            context["location"] = "You do not know user's location and if asked, tell them so"
 
         # Merge in learned context
         if learned_context is not None:

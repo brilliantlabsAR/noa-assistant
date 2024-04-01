@@ -113,10 +113,10 @@ async def mm(request: Request, mm: Annotated[str, Form()], audio : UploadFile = 
         image_bytes = (await image.read()) if image else None
 
         # Location data
-        address = mm.address if mm.address else "San Francisco"
+        address = mm.address
 
         # User's local time
-        local_time = mm.local_time if mm.local_time else datetime.now().strftime("%A, %B %d, %Y, %I:%M %p")
+        local_time = mm.local_time
 
         # Image generation (bypasses assistant altogether)
         if mm.generate_image != 0:

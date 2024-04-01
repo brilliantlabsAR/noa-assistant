@@ -107,6 +107,8 @@ class PerplexityAssistant(Assistant):
 
     @staticmethod
     def _system_message(location: str | None):
+        if location is None or len(location) == 0:
+            location = "<you do not know user's location and if asked, tell them so>"
         return f"reply in concise and short with high accurancy from web results if needed take location as {location}"
 
 Assistant.register(PerplexityAssistant)
