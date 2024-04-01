@@ -399,9 +399,8 @@ def create_hallucinated_tool_info_object(function_name: str) -> Dict[str, str]:
 ####################################################################################################
 
 class GPTAssistant(Assistant):
-    def __init__(self, client: openai.OpenAI, model: str = "gpt-3.5-turbo-1106"):
+    def __init__(self, client: openai.OpenAI):
         self._client = client
-        self._model = model
 
     # Refer to definition of Assistant for description of parameters
     def send_to_assistant(
@@ -411,10 +410,14 @@ class GPTAssistant(Assistant):
         message_history: List[Message] | None,
         location_address: str | None,
         local_time: str | None,
+        model: str | None,
         web_search: WebSearch,
         vision: Vision
     ) -> AssistantResponse:
         start = timeit.default_timer()
+
+        # Default model
+        model = model if model is not None else "gpt-3.5-turbo-1106"
 
         # Prepare response datastructure
         returned_response = AssistantResponse(token_usage_by_model={}, capabilities_used=[], response="", debug_tools="")
@@ -440,7 +443,7 @@ class GPTAssistant(Assistant):
         # Update learned context by analyzing last N messages.
         # TODO: this was for demo purposes and needs to be made more robust. Should be triggered
         #       periodically or when user asks something for which context is needed.
-        #learned_context.update(self._extract_learned_context(message_history=message_history, token_usage_by_model=returned_response.token_usage_by_model))
+        #learned_context.update(self._extract_learned_context(message_history=message_history, model=model, token_usage_by_model=returned_response.token_usage_by_model))
         learned_context = {}
 
         # Inject context into our copy by appending it to system message
@@ -448,7 +451,7 @@ class GPTAssistant(Assistant):
 
         # Initial GPT call, which may request tool use
         first_response = self._client.chat.completions.create(
-            model=self._model,
+            model=model,
             messages=message_history,
             tools=TOOLS,
             tool_choice="auto"
@@ -458,7 +461,7 @@ class GPTAssistant(Assistant):
         # Aggregate token counts and potential initial response
         accumulate_token_usage(
             token_usage_by_model=returned_response.token_usage_by_model,
-            model=self._model,
+            model=model,
             input_tokens=first_response.usage.prompt_tokens,
             output_tokens=first_response.usage.completion_tokens,
             total_tokens=first_response.usage.total_tokens
@@ -502,14 +505,14 @@ class GPTAssistant(Assistant):
 
             # Get final response from model
             second_response = self._client.chat.completions.create(
-                model=self._model,
+                model=model,
                 messages=message_history
             )
 
             # Aggregate tokens and response
             accumulate_token_usage(
                 token_usage_by_model=returned_response.token_usage_by_model,
-                model=self._model,
+                model=model,
                 input_tokens=second_response.usage.prompt_tokens,
                 output_tokens=second_response.usage.completion_tokens,
                 total_tokens=second_response.usage.total_tokens
@@ -605,7 +608,7 @@ class GPTAssistant(Assistant):
         system_message_fragment = CONTEXT_SYSTEM_MESSAGE_PREFIX + "\n".join([ f"<{key}>{value}</{key}>" for key, value in context.items() if value is not None ])
         return system_message_fragment
 
-    def _extract_learned_context(self, message_history: List[Message], token_usage_by_model: Dict[str, TokenUsage]) -> Dict[str,str]:
+    def _extract_learned_context(self, message_history: List[Message], model: str, token_usage_by_model: Dict[str, TokenUsage]) -> Dict[str,str]:
         # Grab last N user messages
         max_user_history = 2
         messages: List[Message] = []
@@ -623,7 +626,7 @@ class GPTAssistant(Assistant):
 
         # Process
         response = self._client.chat.completions.create(
-            model=self._model,
+            model=model,
             messages=messages
         )
 

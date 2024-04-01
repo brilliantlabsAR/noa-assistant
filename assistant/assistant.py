@@ -30,8 +30,9 @@ class Assistant(ABC):
         message_history: List[Message] | None, 
         local_time: str | None,
         location_address: str | None,
+        model: str | None,
         web_search: WebSearch,
-        vision: Vision,
+        vision: Vision
     ) -> AssistantResponse:
         """
         Sends a message from user to assistant.
@@ -52,6 +53,10 @@ class Assistant(ABC):
             User's current location, specified as a full or partial address. This provides context
             to the LLM and is especially useful for web searches. E.g.,
             "3985 Stevens Creek Blvd, Santa Clara, CA 95051".
+        model : str | None
+            Assistant model. Valid values will depend on the assistant implementation (e.g., OpenAI-
+            based assistants will take "gpt-3.5-turbo", etc.) A default will be selected if None is
+            passed.
         web_search : WebSearch
             Web search provider, invoked when a web search (including a reverse image search) is
             needed.

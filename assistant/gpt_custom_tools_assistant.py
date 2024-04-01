@@ -124,9 +124,8 @@ class WebSearchTool(ABC):
         return result.summary
 
 class GPTCustomToolsAssistant(Assistant):
-    def __init__(self, client: openai.OpenAI, model: str = "gpt-3.5-turbo-1106"):
+    def __init__(self, client: openai.OpenAI):
         self._client = client
-        self._model = model
         self._learned_context: Dict[str,str] = {}
 
     def send_to_assistant(
@@ -136,10 +135,14 @@ class GPTCustomToolsAssistant(Assistant):
         message_history: List[Message] | None, 
         location_address: str | None,
         local_time: str | None,
+        model: str | None,
         web_search: WebSearch,
         vision: Vision
     ) -> AssistantResponse:
         start = timeit.default_timer()
+
+        # Default model
+        model = model if model is not None else "gpt-3.5-turbo-1106"
 
         # Prepare response data structure
         final_response = AssistantResponse(tokens_usage_by_model={}, capabilities_used=[], response="", debug_tools="")
@@ -152,10 +155,10 @@ class GPTCustomToolsAssistant(Assistant):
         message_history.append(user_message)
 
         # Step 1: Tool analysis 
-        tool_requirements, tool_token_usage, = self._get_tool_requirements(message_history=message_history)
+        tool_requirements, tool_token_usage, = self._get_tool_requirements(message_history=message_history, model=model)
         accumulate_token_usage(
             token_usage_by_model=final_response.token_usage_by_model,
-            model=self._model,
+            model=model,
             input_tokens=tool_token_usage.prompt_tokens,
             output_tokens=tool_token_usage.completion_tokens,
             total_tokens=tool_token_usage.total_tokens
@@ -187,7 +190,7 @@ class GPTCustomToolsAssistant(Assistant):
         extra_context_system_message = Message(role=Role.SYSTEM, content=self._create_context_system_message(local_time=local_time, location=location_address, learned_context=None))
         message_history.append(extra_context_system_message)
         assistant_response = self._client.chat.completions.create(
-            model=self._model,
+            model=model,
             messages=message_history
         )
         assistant_token_usage = assistant_response.usage
@@ -199,7 +202,7 @@ class GPTCustomToolsAssistant(Assistant):
         # Generate final response object
         accumulate_token_usage(
             token_usage_by_model=final_response.token_usage_by_model,
-            model=self._model,
+            model=model,
             input_tokens=assistant_token_usage.prompt_tokens,
             output_tokens=assistant_token_usage.completion_tokens,
             total_tokens=assistant_token_usage.total_tokens
@@ -223,7 +226,7 @@ class GPTCustomToolsAssistant(Assistant):
             return WebSearchTool(tool_requirements=tool_requirements, web_search=web_search)
         return None
 
-    def _get_tool_requirements(self, message_history: List[Message]) -> Tuple[ToolRequirements, CompletionUsage]:
+    def _get_tool_requirements(self, message_history: List[Message], model: str) -> Tuple[ToolRequirements, CompletionUsage]:
         # Filter out system messages and take only last N user messages
         n = 5
         message_history = message_history.copy()
@@ -236,7 +239,7 @@ class GPTCustomToolsAssistant(Assistant):
 
         # Invoke LLM
         response = self._client.chat.completions.create(
-            model=self._model,
+            model=model,
             messages=message_history
         )
         token_usage = response.usage

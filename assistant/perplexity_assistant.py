@@ -58,9 +58,13 @@ class PerplexityAssistant(Assistant):
         message_history: List[Message] | None, 
         local_time: str | None,
         location_address: str | None,
+        model: str | None,
         web_search: WebSearch,
         vision: Vision
     ) -> AssistantResponse:
+        # Default model
+        model = model if model is not None else "pplx-7b-online"
+
         # Prepare response datastructure
         returned_response = AssistantResponse(token_usage_by_model={}, capabilities_used=[ Capability.ASSISTANT_KNOWLEDGE ], response="", debug_tools="")
 
@@ -82,7 +86,7 @@ class PerplexityAssistant(Assistant):
         # Call Perplexity
         url = "https://api.perplexity.ai/chat/completions"
         payload = {
-            "model": "pplx-7b-online",
+            "model": model,
             "messages": [ message.model_dump() for message in message_history ]
         }
         headers = {

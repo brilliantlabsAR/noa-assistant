@@ -152,6 +152,7 @@ async def mm(request: Request, mm: Annotated[str, Form()], audio : UploadFile = 
                 message_history=mm.messages,
                 local_time=local_time,
                 location_address=address,
+                model=mm.assistant_model,
                 web_search=web_search,
                 vision=vision
             )
@@ -239,8 +240,10 @@ if __name__ == "__main__":
             message_history=[],
             local_time=datetime.now().strftime("%A, %B %d, %Y, %I:%M %p"),  # e.g., Friday, March 8, 2024, 11:54 AM
             location_address=options.location,
+            model=None,
             web_search=app.state.web_search,
-            vision=app.state.vision
+            vision=app.state.vision,
+
         )
         print(response)
 
