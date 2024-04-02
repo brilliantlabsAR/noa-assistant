@@ -446,8 +446,11 @@ class GPTAssistant(Assistant):
         #learned_context.update(self._extract_learned_context(message_history=message_history, model=model, token_usage_by_model=returned_response.token_usage_by_model))
         learned_context = {}
 
-        # Inject context into our copy by appending it to system message
-        message_history[0].content += "\n\n" + self._create_context_system_message(local_time=local_time, location=location_address, learned_context=learned_context)
+        # Inject context into our copy by appending it to system message. Unclear whether multiple
+        # system messages are confusing to the assistant or not but cursory testing shows this
+        # seems to work.
+        extra_context_message = Message(role=Role.SYSTEM, content=self._create_context_system_message(local_time=local_time, location=location_address, learned_context=learned_context))
+        message_history.append(extra_context_message)
 
         # Initial GPT call, which may request tool use
         first_response = self._client.chat.completions.create(
