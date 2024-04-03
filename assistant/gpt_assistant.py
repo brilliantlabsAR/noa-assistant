@@ -8,14 +8,13 @@
 #
 # TODO:
 # -----
-# - Tools can be handled in parallel, asynchronously. It is rare for multiple tools to be invoked
-#   but it can occasionally happen.
 # - Move to streaming completions and detect timeouts when a threshold duration elapses since the
 #   the last token was emitted.
 # - Figure out how to get assistant to stop referring to "photo" and "image" when analyzing photos.
 # - Improve people search.
 #
 
+import asyncio
 import json
 import timeit
 from typing import Any, Dict, List
@@ -480,29 +479,34 @@ class GPTAssistant(Assistant):
             # Append initial response to history, which may include tool use
             message_history.append(first_response_message)
 
-            # Invoke each tool
+            # Invoke all the tools in parallel and wait for them all to complete
+            tool_handlers = []
             for tool_call in first_response_message.tool_calls:
-                tool_output = await handle_tool(
-                    tool_call=tool_call,
-                    user_message=prompt,
-                    image_bytes=image_bytes,
-                    location=location_address,
-                    local_time=local_time,
-                    web_search=web_search,
-                    vision=vision,
-                    learned_context=learned_context,
-                    token_usage_by_model=returned_response.token_usage_by_model,
-                    capabilities_used=returned_response.capabilities_used,
-                    tools_used=tools_used
+                tool_handlers.append(
+                    handle_tool(
+                        tool_call=tool_call,
+                        user_message=prompt,
+                        image_bytes=image_bytes,
+                        location=location_address,
+                        local_time=local_time,
+                        web_search=web_search,
+                        vision=vision,
+                        learned_context=learned_context,
+                        token_usage_by_model=returned_response.token_usage_by_model,
+                        capabilities_used=returned_response.capabilities_used,
+                        tools_used=tools_used
+                    )
                 )
+            tool_outputs = await asyncio.gather(*tool_handlers)
 
-                # Append function response for GPT to continue
+            # Append all the responses for GPT to continue
+            for i in range(len(tool_outputs)):
                 message_history.append(
                     {
-                        "tool_call_id": tool_call.id,
+                        "tool_call_id": first_response_message.tool_calls[i].id,
                         "role": "tool",
-                        "name": tool_call.function.name,
-                        "content": tool_output,
+                        "name": first_response_message.tool_calls[i].function.name,
+                        "content": tool_outputs[i],
                     }
                 )
 
