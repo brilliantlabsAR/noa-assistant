@@ -19,7 +19,7 @@ import openai
 from openai.types.completion import CompletionUsage
 
 from .assistant import Assistant, AssistantResponse
-from web_search import WebSearch, WebSearchResult
+from web_search import WebSearch
 from vision import Vision
 from models import Role, Message, Capability, TokenUsage, accumulate_token_usage
 
@@ -80,17 +80,17 @@ def parse_yes_no(text: str | None) -> bool:
 
 class Tool(ABC):
     @abstractmethod
-    def run(self, user_query: str, image_bytes: bytes | None, location: str | None, local_time: str | None, token_usage_by_model: Dict[str, TokenUsage], capabilities_used: List[Capability]) -> str:
+    async def run(self, user_query: str, image_bytes: bytes | None, location: str | None, local_time: str | None, token_usage_by_model: Dict[str, TokenUsage], capabilities_used: List[Capability]) -> str:
         pass
 
 class VisionTool(ABC):
-    def __init__(self, tool_requirements: ToolRequirements, vision: Vision, web_search: WebSearch, reverse_image_search: bool, token_usage_by_model: Dict[str, TokenUsage]):
+    def __init__(self, tool_requirements: ToolRequirements, vision: Vision, web_search: WebSearch, reverse_image_search: bool):
         self._tool_requirements = tool_requirements
         self._vision = vision
         self._web_search = web_search
         self._reverse_image_search = reverse_image_search
 
-    def run(self, user_query: str, image_bytes: bytes | None, location: str | None, local_time: str | None, token_usage_by_model: Dict[str, TokenUsage], capabilities_used: List[Capability]) -> str:
+    async def run(self, user_query: str, image_bytes: bytes | None, location: str | None, local_time: str | None, token_usage_by_model: Dict[str, TokenUsage], capabilities_used: List[Capability]) -> str:
         query = self._tool_requirements.photo_query if len(self._tool_requirements.photo_query) > 0 else user_query
         if self._web_search:
             # NOTE: The web search flag is rarely set for photos (in fact, I have yet to see it). This
@@ -99,36 +99,36 @@ class VisionTool(ABC):
             capabilities_used.append(Capability.REVERSE_IMAGE_SEARCH)
             extra_context = GPTCustomToolsAssistant._create_context_system_message(local_time=local_time, location=location, learned_context=None)
             system_prompt = VISION_GENERATE_REVERSE_IMAGE_SEARCH_QUERY_FROM_PHOTO_SYSTEM_MESSAGE + extra_context
-            vision_response = self._vision.query_image(
+            vision_response = await self._vision.query_image(
                 system_message=system_prompt,
                 query=query,
                 image_bytes=image_bytes,
                 token_usage_by_model=token_usage_by_model
             )
-            return self._web_search.search_web(query=vision_response.strip("\""), use_photo=True, image_bytes=image_bytes, location=location)
+            return await self._web_search.search_web(query=vision_response.strip("\""), use_photo=True, image_bytes=image_bytes, location=location)
         else:
             # Vision only
             capabilities_used.append(Capability.VISION)
             query = self._tool_requirements.photo_query if len(self._tool_requirements.photo_query) > 0 else user_query
-            return self._vision.query_image(system_message=VISION_PHOTO_DESCRIPTION_SYSTEM_MESSAGE, query=query, image_bytes=image_bytes)
+            return await self._vision.query_image(system_message=VISION_PHOTO_DESCRIPTION_SYSTEM_MESSAGE, query=query, image_bytes=image_bytes)
 
 class WebSearchTool(ABC):
     def __init__(self, tool_requirements: ToolRequirements, web_search: WebSearch):
         self._tool_requirements = tool_requirements
         self._web_search = web_search
 
-    def run(self, user_query: str, image_bytes: bytes | None, location: str | None, local_time: str | None, token_usage_by_model: Dict[str, TokenUsage], capabilities_used: List[Capability]) -> str:
+    async def run(self, user_query: str, image_bytes: bytes | None, location: str | None, local_time: str | None, token_usage_by_model: Dict[str, TokenUsage], capabilities_used: List[Capability]) -> str:
         capabilities_used.append(Capability.WEB_SEARCH)
         query = self._tool_requirements.search_query if len(self._tool_requirements.search_query) > 0 else user_query
-        result = self._web_search.search_web(query=query, use_photo=False, image_bytes=image_bytes, location=location)
+        result = await self._web_search.search_web(query=query, use_photo=False, image_bytes=image_bytes, location=location)
         return result.summary
 
 class GPTCustomToolsAssistant(Assistant):
-    def __init__(self, client: openai.OpenAI):
+    def __init__(self, client: openai.AsyncOpenAI):
         self._client = client
         self._learned_context: Dict[str,str] = {}
 
-    def send_to_assistant(
+    async def send_to_assistant(
         self,
         prompt: str,
         image_bytes: bytes | None, 
@@ -145,7 +145,7 @@ class GPTCustomToolsAssistant(Assistant):
         model = model if model is not None else "gpt-3.5-turbo-1106"
 
         # Prepare response data structure
-        final_response = AssistantResponse(tokens_usage_by_model={}, capabilities_used=[], response="", debug_tools="")
+        final_response = AssistantResponse(token_usage_by_model={}, capabilities_used=[], response="", debug_tools="")
 
         # Make copy of message history so we can modify it in-flight
         message_history = message_history.copy() if message_history else []
@@ -155,7 +155,7 @@ class GPTCustomToolsAssistant(Assistant):
         message_history.append(user_message)
 
         # Step 1: Tool analysis 
-        tool_requirements, tool_token_usage, = self._get_tool_requirements(message_history=message_history, model=model)
+        tool_requirements, tool_token_usage, = await self._get_tool_requirements(message_history=message_history, model=model)
         accumulate_token_usage(
             token_usage_by_model=final_response.token_usage_by_model,
             model=model,
@@ -170,7 +170,7 @@ class GPTCustomToolsAssistant(Assistant):
         # Step 3: Get tool result
         tool_result_system_message = None
         if tool is not None:
-            tool_result = tool.run(
+            tool_result = await tool.run(
                 user_query=prompt,
                 image_bytes=image_bytes,
                 location=location_address,
@@ -189,7 +189,7 @@ class GPTCustomToolsAssistant(Assistant):
             message_history.append(tool_result_system_message)
         extra_context_system_message = Message(role=Role.SYSTEM, content=self._create_context_system_message(local_time=local_time, location=location_address, learned_context=None))
         message_history.append(extra_context_system_message)
-        assistant_response = self._client.chat.completions.create(
+        assistant_response = await self._client.chat.completions.create(
             model=model,
             messages=message_history
         )
@@ -226,7 +226,7 @@ class GPTCustomToolsAssistant(Assistant):
             return WebSearchTool(tool_requirements=tool_requirements, web_search=web_search)
         return None
 
-    def _get_tool_requirements(self, message_history: List[Message], model: str) -> Tuple[ToolRequirements, CompletionUsage]:
+    async def _get_tool_requirements(self, message_history: List[Message], model: str) -> Tuple[ToolRequirements, CompletionUsage]:
         # Filter out system messages and take only last N user messages
         n = 5
         message_history = message_history.copy()
@@ -238,7 +238,7 @@ class GPTCustomToolsAssistant(Assistant):
         message_history.insert(0, system_message)
 
         # Invoke LLM
-        response = self._client.chat.completions.create(
+        response = await self._client.chat.completions.create(
             model=model,
             messages=message_history
         )
