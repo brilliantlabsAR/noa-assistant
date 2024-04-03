@@ -8,7 +8,6 @@
 #
 # TODO:
 # -----
-# - Don't forget to make other assistants async! 
 # - Tools can be handled in parallel, asynchronously. It is rare for multiple tools to be invoked
 #   but it can occasionally happen.
 # - Move to streaming completions and detect timeouts when a threshold duration elapses since the
