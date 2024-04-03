@@ -8,9 +8,9 @@
 #
 # TODO:
 # -----
+# - Don't forget to make other assistants async! 
 # - Tools can be handled in parallel, asynchronously. It is rare for multiple tools to be invoked
 #   but it can occasionally happen.
-# - Web search needs to be made asynchronous as this takes a lot of time.
 # - Move to streaming completions and detect timeouts when a threshold duration elapses since the
 #   the last token was emitted.
 # - Figure out how to get assistant to stop referring to "photo" and "image" when analyzing photos.
@@ -349,7 +349,7 @@ async def handle_photo_tool(
             image_bytes=image_bytes,
             token_usage_by_model=token_usage_by_model
         )
-        return web_search.search_web(query=vision_response.strip("\""), use_photo=True, image_bytes=image_bytes, location=location)
+        return await web_search.search_web(query=vision_response.strip("\""), use_photo=True, image_bytes=image_bytes, location=location)
 
     # Just use vision tool
     capabilities_used.append(Capability.VISION)

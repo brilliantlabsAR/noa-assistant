@@ -7,9 +7,9 @@
 from base64 import b64encode
 import json
 import os
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
-from http.client import HTTPSConnection
+import aiohttp
 from pydantic import BaseModel
 import geopy.geocoders
 
@@ -99,33 +99,36 @@ class V3SerpGoogleOrganicLiveAdvancedResponse(BaseModel):
 
 class DataForSEOClient:
     def __init__(self):
-        self._username = DATAFORSEO_USERNAME
-        self._password = DATAFORSEO_PASSWORD
+        self._session = aiohttp.ClientSession()
+        self._base_url = "https://api.dataforseo.com"
 
-    def _request(self, path, method, data=None):
-        connection = HTTPSConnection("api.dataforseo.com")
-        try:
-            base64_bytes = b64encode(
-                ("%s:%s" % (self._username, self._password)).encode("ascii")
+        base64_bytes = b64encode(
+                ("%s:%s" % (DATAFORSEO_USERNAME, DATAFORSEO_PASSWORD)).encode("ascii")
                 ).decode("ascii")
-            headers = {'Authorization' : 'Basic %s' %  base64_bytes, 'Content-Encoding' : 'gzip'}
-            connection.request(method, path, headers=headers, body=data)
-            response = connection.getresponse()
-            return json.loads(response.read().decode())
-        finally:
-            connection.close()
+        self._headers = {'Authorization' : 'Basic %s' %  base64_bytes, 'Content-Encoding' : 'gzip'}
 
-    def _get(self, path):
-        return self._request(path, 'GET')
+    def __del__(self):
+        self._session.detach()
 
-    def _post(self, path, data):
+    async def _request(self, path, method, data=None) -> Any | None:
+        url = self._base_url + path
+        async with self._session.request(method=method, url=url, headers=self._headers, data=data) as response:
+            if response.status != 200:
+                print(f"DataForSEO search failed: {await response.text()}")
+                return None
+            return await response.json()
+
+    async def _get(self, path):
+        return await self._request(path=path, method='GET')
+
+    async def _post(self, path, data):
         if isinstance(data, str):
             data_str = data
         else:
             data_str = json.dumps(data)
-        return self._request(path, 'POST', data_str)
+        return await self._request(path=path, method='POST', data=data_str)
     
-    def perform_search(self, query: str, location_coordinate: Tuple[float, float] | None = None, save_to_file: str | None = None) -> V3SerpGoogleOrganicLiveAdvancedResponse:
+    async def perform_search(self, query: str, location_coordinate: Tuple[float, float] | None = None, save_to_file: str | None = None) -> V3SerpGoogleOrganicLiveAdvancedResponse | None:
         print("Searching web:")
         print(f"  query: {query}")
 
@@ -135,7 +138,9 @@ class DataForSEOClient:
             location_coordinate = f"{location_coordinate[0]},{location_coordinate[1]}" if location_coordinate else None,
             keyword = query
         )
-        response_obj = self._post("/v3/serp/google/organic/live/advanced", post_data)
+        response_obj = await self._post("/v3/serp/google/organic/live/advanced", post_data)
+        if response_obj is None:
+            return None
         if save_to_file:
             with open(save_to_file, mode="w") as fp:
                 fp.write(json.dumps(response_obj, indent=2))
@@ -146,6 +151,7 @@ class DataForSEOWebSearch(WebSearch):
         super().__init__()
         self._save_to_file = save_to_file
         self._max_search_results = max_search_results
+        self._client = DataForSEOClient()
 
     # DataForSEO does not have reverse image search, so photos are always ignored
     async def search_web(self, query: str, use_photo: bool = False, image_bytes: bytes | None = None, location: str | None = None) -> WebSearchResult:
@@ -153,7 +159,8 @@ class DataForSEOWebSearch(WebSearch):
             # DataForSEO expects lat,long+
             location_coords = geopy.geocoders.Nominatim(user_agent="GetLoc").geocode(location)
             coordinates = (location_coords.latitude, location_coords.longitude)
-        response = DataForSEOClient().perform_search(query=query, location_coordinate=coordinates, save_to_file=self._save_to_file)
-        return WebSearchResult(summary=response.summarise(max_search_results=self._max_search_results), search_provider_metadata="")
+        response = await self._client.perform_search(query=query, location_coordinate=coordinates, save_to_file=self._save_to_file)
+        summary = response.summarise(max_search_results=self._max_search_results) if response is not None else "No results found"
+        return WebSearchResult(summary=summary, search_provider_metadata="")
 
 WebSearch.register(DataForSEOWebSearch)
