@@ -7,3 +7,5 @@
 *.png
 __pycache__
 dev_deploy.sh
+env
+Dockerfile
