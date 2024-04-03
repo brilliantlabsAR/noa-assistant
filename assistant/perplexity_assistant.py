@@ -40,7 +40,6 @@ class PerplexityResponse(BaseModel):
     object: str = None
     choices: List[MessageChoices] = None
     
-
     def summarise(self, count: int=5) -> str:
         if len(self.choices) >0:
             return self.choices[0].message.content

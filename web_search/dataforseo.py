@@ -151,10 +151,17 @@ class DataForSEOWebSearch(WebSearch):
         super().__init__()
         self._save_to_file = save_to_file
         self._max_search_results = max_search_results
-        self._client = DataForSEOClient()
+        self._client = None
+    
+    async def _lazy_init(self):
+        if self._client is None:
+            # This instantiation must happen inside of an async event loop because
+            # aiohttp.ClientSession()'s initializer requires that
+            self._client = DataForSEOClient()
 
     # DataForSEO does not have reverse image search, so photos are always ignored
     async def search_web(self, query: str, use_photo: bool = False, image_bytes: bytes | None = None, location: str | None = None) -> WebSearchResult:
+        await self._lazy_init()
         if location:
             # DataForSEO expects lat,long+
             location_coords = geopy.geocoders.Nominatim(user_agent="GetLoc").geocode(location)
