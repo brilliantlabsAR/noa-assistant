@@ -5,17 +5,17 @@
 # using multiple methods (reverse image search, Google Lens).
 #
 
-import json
 from io import BytesIO
-import requests
-from typing import List, Tuple, Any, Dict, Optional
-
-from pydantic import BaseModel
-import serpapi
-import uule_grabber
+import json
 import os
+from typing import List, Any, Dict, Optional
+
+import aiohttp
+from pydantic import BaseModel
+import uule_grabber
 
 from .web_search import WebSearch, WebSearchResult
+from .async_serpapi_client import AsyncSerpAPIClient
 
 
 TEST_CDN = os.environ.get("IMAGE_CDN", None)
@@ -776,18 +776,17 @@ class SerpAPIResponse(BaseModel):
         content = "\n".join(content_lines) if len(content_lines) > 0 else "No result found"
         return content
     
-def SerpAPISearch(query: str, engine: str="google", use_photo: bool = False, image_url: str | None = None, save_to_file: str | None = None, uule: str | None = None) -> SerpAPIResponse:
-    client = serpapi.Client(api_key=SERP_API_KEY)
+async def SerpAPISearch(client: AsyncSerpAPIClient, query: str, engine: str="google", use_photo: bool = False, image_url: str | None = None, save_to_file: str | None = None, uule: str | None = None) -> SerpAPIResponse | None:
     if use_photo and image_url:
         if str(engine) != "google_lens":
            engine = "google_reverse_image"
         print(f"Using {engine} for image search")
         if engine == "google_lens":
-            response_obj = client.search(engine=engine, url=str(image_url).strip("\n"),  hl="en", uule=uule)
+            response_obj = await client.search(engine=engine, url=str(image_url).strip("\n"),  hl="en", uule=uule)
         else:
-            response_obj = client.search(q=query,engine=engine, image_url=str(image_url).strip("\n"),  hl="en", uule=uule)
+            response_obj = await client.search(q=query,engine=engine, image_url=str(image_url).strip("\n"),  hl="en", uule=uule)
     else:
-        response_obj = client.search(q=query, engine=engine,  hl="en", uule=uule)
+        response_obj = await client.search(q=query, engine=engine,  hl="en", uule=uule)
 
     if save_to_file:
         with open(save_to_file, "w") as f:
@@ -797,15 +796,18 @@ def SerpAPISearch(query: str, engine: str="google", use_photo: bool = False, ima
     except Exception as e:
         print(f"Failed to validate response: {e}")
         print(response_obj)
-        return "No result found"
+        return None
     return resp
 
-def upload_image_to_cdn(image_bytes: bytes) -> str | None:
-    response = requests.post(TEST_CDN, files={'file': ('file', BytesIO(image_bytes)), 'expires': str(2)})
-    if response.status_code != 200:
-        print(f"Failed to upload image to CDN: {response.content}")
-        return None
-    return response.content.decode()
+async def upload_image_to_cdn(session: aiohttp.ClientSession, image_bytes: bytes) -> str | None:
+    params = { "expires": "2" }
+    data_form = aiohttp.FormData()
+    data_form.add_field('file', BytesIO(image_bytes))
+    async with session.post(TEST_CDN, data=data_form, params=params) as response:
+        if response.status != 200:
+            print(f"Failed to upload image to CDN: {await response.text()}")
+            return None
+        return await response.text()
 
 class SerpWebSearch(WebSearch):
     def __init__(self, save_to_file: str | None = None, engine: str = "google", max_search_results: int = 5):
@@ -813,11 +815,21 @@ class SerpWebSearch(WebSearch):
         self._save_to_file = save_to_file
         self._engine = engine
         self._max_search_results = max_search_results
+        self._session = None
+        self._client = None
     
-    def search_web(self, query: str, use_photo: bool = False, image_bytes: bytes | None = None, location: str | None = None, uule: str | None = None) -> WebSearchResult:
+    async def _lazy_init(self):
+        if self._session is None:
+            # This instantiation must happen inside of an async event loop
+            self._session = aiohttp.ClientSession()
+            self._client = AsyncSerpAPIClient(api_key=SERP_API_KEY, session=self._session)
+    
+    async def search_web(self, query: str, use_photo: bool = False, image_bytes: bytes | None = None, location: str | None = None) -> WebSearchResult:
+        await self._lazy_init()
         uule = uule_grabber.uule(location)
-        image_url = upload_image_to_cdn(image_bytes=image_bytes) if image_bytes else None
-        serp_response = SerpAPISearch(query, engine=self._engine, use_photo=use_photo, image_url=image_url, save_to_file=self._save_to_file, uule=uule)
-        return WebSearchResult(summary=serp_response.summarise(max_search_results=self._max_search_results), search_provider_metadata=serp_response.search_metadata.json_endpoint)
+        image_url = await upload_image_to_cdn(session=self._session, image_bytes=image_bytes) if image_bytes else None
+        serp_response = await SerpAPISearch(client=self._client, query=query, engine=self._engine, use_photo=use_photo, image_url=image_url, save_to_file=self._save_to_file, uule=uule)
+        summary = serp_response.summarise(max_search_results=self._max_search_results) if serp_response is not None else "No results found"
+        return WebSearchResult(summary=summary, search_provider_metadata=serp_response.search_metadata.json_endpoint)
 
 WebSearch.register(SerpWebSearch)

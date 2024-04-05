@@ -16,11 +16,11 @@ from models import TokenUsage, accumulate_token_usage
 
 
 class ClaudeVision(Vision):
-    def __init__(self, client:anthropic.Anthropic, model:str="claude-3-haiku-20240307"):
+    def __init__(self, client: anthropic.AsyncAnthropic, model: str="claude-3-haiku-20240307"):
         self._client = client
         self._model = model
     
-    def query_image(self, system_message: str, query: str, image_bytes: bytes | None, token_usage_by_model: Dict[str, TokenUsage]) -> str:
+    async def query_image(self, system_message: str, query: str, image_bytes: bytes | None, token_usage_by_model: Dict[str, TokenUsage]) -> str:
         image_base64 = base64.b64encode(image_bytes).decode("utf-8") if image_bytes is not None else ""
 
         messages = [
@@ -43,7 +43,7 @@ class ClaudeVision(Vision):
             }   
         ]
 
-        response = self._client.messages.create(
+        response = await self._client.messages.create(
             model=self._model,
             system=system_message,
             messages=messages,

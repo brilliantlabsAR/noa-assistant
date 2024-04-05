@@ -4,26 +4,26 @@
 # Noa assistant server application. Provides /mm endpoint.
 #
 
+import asyncio
 from datetime import datetime
-from enum import Enum
 from io import BytesIO
 import os
 import traceback
-from typing import Dict, List, Optional, Annotated
+from typing import Annotated
 
 import openai
 import anthropic
-from pydantic import BaseModel, ValidationError, Field
+from pydantic import BaseModel, ValidationError
 from pydub import AudioSegment
-from fastapi import FastAPI, status, Form, UploadFile, Depends, Request
+from fastapi import FastAPI, status, Form, UploadFile, Request
 from pydantic import BaseModel, ValidationError
 from fastapi.exceptions import HTTPException
 from fastapi.encoders import jsonable_encoder
 
-from models import Message, Capability, SearchAPI, VisionModel, GenerateImageService, TokenUsage, MultimodalRequest, MultimodalResponse
+from models import Capability, SearchAPI, VisionModel, GenerateImageService, MultimodalRequest, MultimodalResponse
 from web_search import WebSearch, DataForSEOWebSearch, SerpWebSearch
 from vision import Vision, GPT4Vision, ClaudeVision
-from generate_image import GenerateImage, ReplicateGenerateImage
+from generate_image import ReplicateGenerateImage
 from assistant import Assistant, AssistantResponse, GPTAssistant, GPTCustomToolsAssistant, PerplexityAssistant
 
 
@@ -146,7 +146,7 @@ async def mm(request: Request, mm: Annotated[str, Form()], audio : UploadFile = 
         # Call the assistant and deliver the response
         try:
             assistant: Assistant = app.state.assistant
-            assistant_response: AssistantResponse = assistant.send_to_assistant(
+            assistant_response: AssistantResponse = await assistant.send_to_assistant(
                 prompt=user_prompt,
                 image_bytes=image_bytes,
                 message_history=mm.messages,
@@ -195,8 +195,8 @@ if __name__ == "__main__":
     options = parser.parse_args()
 
     # AI clients
-    app.state.openai_client = openai.OpenAI()
-    app.state.anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    app.state.openai_client = openai.AsyncOpenAI()
+    app.state.anthropic_client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
 
     # Instantiate a web search provider
     app.state.web_search = None
@@ -234,17 +234,19 @@ if __name__ == "__main__":
 
     # Test query
     if options.query:
-        response = app.state.assistant.send_to_assistant(
-            prompt=options.query,
-            image_bytes=image_bytes,
-            message_history=[],
-            local_time=datetime.now().strftime("%A, %B %d, %Y, %I:%M %p"),  # e.g., Friday, March 8, 2024, 11:54 AM
-            location_address=options.location,
-            model=None,
-            web_search=app.state.web_search,
-            vision=app.state.vision,
+        async def run_query() -> str:
+            return await app.state.assistant.send_to_assistant(
+                prompt=options.query,
+                image_bytes=image_bytes,
+                message_history=[],
+                local_time=datetime.now().strftime("%A, %B %d, %Y, %I:%M %p"),  # e.g., Friday, March 8, 2024, 11:54 AM
+                location_address=options.location,
+                model=None,
+                web_search=app.state.web_search,
+                vision=app.state.vision,
 
-        )
+            )
+        response = asyncio.run(run_query())
         print(response)
 
     # Run server
