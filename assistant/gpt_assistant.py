@@ -529,6 +529,10 @@ class GPTAssistant(Assistant):
             )
             returned_response.response = second_response.choices[0].message.content
 
+        # If no tools were used, only assistant capability recorded
+        if len(returned_response.capabilities_used) == 0:
+            returned_response.capabilities_used.append(Capability.ASSISTANT_KNOWLEDGE)
+
         # Return final response
         returned_response.debug_tools = json.dumps(tools_used)
         stop = timeit.default_timer()
