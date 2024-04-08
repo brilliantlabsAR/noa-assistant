@@ -5,6 +5,9 @@
         "default_image": "tests/images/black.jpg",
         "conversations": [
             [
+                { "text": "Who is the CEO of Brilliant Labs?", "capabilities": [ "web_search" ] }
+            ],
+            [
                 { "text": "What's the weather like today?", "capabilities": [ "web_search" ] }
             ],
             [
