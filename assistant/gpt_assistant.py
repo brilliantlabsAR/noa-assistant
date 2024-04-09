@@ -107,7 +107,7 @@ CONTEXT_SYSTEM_MESSAGE_PREFIX = "## Additional context about the user:"
 ####################################################################################################
 
 DUMMY_SEARCH_TOOL_NAME = "general_knowledge_search"
-SEARCH_TOOL_NAME = "search"
+SEARCH_TOOL_NAME = "web_search"
 PHOTO_TOOL_NAME = "analyze_photo"
 QUERY_PARAM_NAME = "query"
 PHOTO_TOOL_WEB_SEARCH_PARAM_NAME = "google_reverse_image_search"
@@ -118,7 +118,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": DUMMY_SEARCH_TOOL_NAME,
-            "description": """Trivial and general knowledge that would be expected to exist in Wikipedia or an encyclopedia""",
+            "description": """Non-recent trivia and general knowledge""",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -135,7 +135,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": SEARCH_TOOL_NAME,
-            "description": """Provides up to date information on news, retail products, current events, and esoteric knowledge""",
+            "description": """Up-to-date information on news, retail products, current events, local conditions, and esoteric knowledge""",
             "parameters": {
                 "type": "object",
                 "properties": {
