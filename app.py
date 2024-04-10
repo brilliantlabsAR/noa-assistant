@@ -24,7 +24,7 @@ from models import Capability, SearchAPI, VisionModel, GenerateImageService, Mul
 from web_search import WebSearch, DataForSEOWebSearch, SerpWebSearch
 from vision import Vision, GPT4Vision, ClaudeVision
 from generate_image import ReplicateGenerateImage
-from assistant import Assistant, AssistantResponse, GPTAssistant, GPTCustomToolsAssistant, PerplexityAssistant
+from assistant import Assistant, AssistantResponse, GPTAssistant, PerplexityAssistant
 
 
 ####################################################################################################
@@ -219,12 +219,10 @@ if __name__ == "__main__":
     # Instantiate an assistant
     if options.assistant == "gpt":
         app.state.assistant = GPTAssistant(client=app.state.openai_client)
-    elif options.assistant == "gpt-custom-tools":
-        app.state.assistant = GPTCustomToolsAssistant(client=app.state.openai_client)
     elif options.assistant == "perplexity":
         app.state.assistant = PerplexityAssistant(api_key=PERPLEXITY_API_KEY)
     else:
-        raise ValueError("--assistant must be one of: gpt, gpt-custom-tools, perplexity")
+        raise ValueError("--assistant must be one of: gpt, perplexity")
 
     # Load image if one was specified (for performing a test query)
     image_bytes = None
