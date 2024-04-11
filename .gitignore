@@ -5,6 +5,7 @@
 *.json
 *.jpg
 *.png
+!docs/noa_assistant.drawio.png
 !.env.example
 !requirements.txt
 __pycache__
