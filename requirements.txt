@@ -30,3 +30,6 @@ ffmpeg
 replicate
 anthropic
 aiohttp
+langchain
+langchain-groq
+numexpr
