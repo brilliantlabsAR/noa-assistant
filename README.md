@@ -3,12 +3,12 @@
  a Authentication server to protect APIs and throttled usage\
 Working features:
 1. Conversational AI
-2. Coversation with Photos
-3. Input from Audio
-4. Websearch
+2. Conversation with Photos
+3. Voice transcription
+4. Web Search
 
 ### Setup
-1. copy the `.env.example` file to `.env` and fill in the keys
+1. Copy the `.env.example` file to `.env` and fill in the keys
 Note: for reverse image search a image cdn needed, you can use any api which accepts image and returns a url.\
 format of the api should be like this.\
 Or this can be avoided if not using reverse image search
