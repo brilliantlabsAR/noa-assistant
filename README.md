@@ -1,6 +1,6 @@
 # Noa Assistant
  This repository conatains all AI stuff of Noa that can be used in parallel with\
- a Authentication server to protect APIs and throttled usage
+ a Authentication server to protect APIs and throttled usage\
 Working features:
 1. Conversational AI
 2. Coversation with Photos
@@ -67,5 +67,5 @@ GET /health
 ```javascript
 await fetch('localhost:8000/health')
 ```
-
+### workflow
 ![Workflow](docs/noa_assistant.drawio.png)
