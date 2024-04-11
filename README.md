@@ -35,7 +35,6 @@ python app.py --server --vision gpt-4-vision-preview --search-api serpapi --assi
 Now the server should be running on `http://localhost:8000` if default port is used
 ### API
 #### POST /mm
-POST /mm
 ```javascript
 await fetch('localhost:8000/mm', {
   method: 'POST',
@@ -63,7 +62,6 @@ await fetch('localhost:8000/mm', {
 })
 ```
 #### POST /health
-GET /health
 ```javascript
 await fetch('localhost:8000/health')
 ```
