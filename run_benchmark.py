@@ -156,7 +156,7 @@ if __name__ == "__main__":
                                     "local_time": datetime.now().strftime("%A, %B %d, %Y, %I:%M %p"),
                                     "config": { "search_api": "serp", "engine": "google_lens" },
                                     "experiment": "1",
-                                    "vision_model": options.vision
+                                    "vision": options.vision
                                 }
                             ),
                     }
@@ -168,7 +168,7 @@ if __name__ == "__main__":
                         "local_time": datetime.now().strftime("%A, %B %d, %Y, %I:%M %p"),
                         "config": json.dumps({ "search_api": "serp", "engine": "google_lens" }),
                         "experiment": "1",  # this activates the passthrough to the Python ai-experiments code
-                        "vision_model": options.vision
+                        "vision": options.vision
                     }
                 files = {}
                 if user_message.image is not None:
