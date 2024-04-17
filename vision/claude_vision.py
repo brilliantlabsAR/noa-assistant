@@ -28,8 +28,7 @@ blurry, pixelated images. NEVER comment on image quality. Do your best with imag
 ALWAYS respond with a JSON object with these fields:
 
 response: (String) Respond to user as best you can. Be precise, get to the point, and speak as though you actually see the image. One or two sentences.
-web_query: (String) Empty if your "response" answers everything user asked. If web search based on visual description would be more helpful, create a query (e.g. up-to-date, location-based, or product info).
-reverse_image_search: (Bool) True if your web query from description is insufficient and including the *exact* thing user is looking at as visual target is needed.
+web_query: (String) If a web search for up-to-date, location-based, or product info would be more helpful, generate the query here. But if response was thorough enough, leave blank.
 """
 
 class ModelOutput(BaseModel):
@@ -63,6 +62,16 @@ class ClaudeVision(Vision):
                         "text": query
                     }
                 ]
+            },
+            {
+                # Prefill a leading '{' to force JSON output as per Anthropic's recommendations
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "{"
+                    }
+                ]
             }   
         ]
 
@@ -83,6 +92,7 @@ class ClaudeVision(Vision):
         )
   
         # Convert to VisionResponse and return
+        print(f"VISION:{response.content[0].text}")
         output = self._parse_response(content=response.content[0].text)
         if output is None:
             return None
@@ -97,10 +107,8 @@ class ClaudeVision(Vision):
     
     @staticmethod
     def _parse_response(content: str) -> ModelOutput | None:
-        # Response expected to be JSON but may be wrapped with ```json ... ```
-        json_start = content.find("{")
-        json_end = content.rfind("}")
-        json_string = content[json_start : json_end + 1]
+        # Put the leading '{' back
+        json_string = "{" + content
         try:
             return ModelOutput.model_validate_json(json_data=json_string)
         except:
