@@ -99,7 +99,7 @@ if __name__ == "__main__":
     parser.add_argument("--endpoint", action="store", default="https://api.brilliant.xyz/dev/noa/mm", help="Address to send request to (Noa server)")
     parser.add_argument("--token", action="store", help="Noa API token")
     parser.add_argument("--test", metavar="name", help="Run specific test")
-    parser.add_argument("--vision", action="store", help="Vision model to use (gpt-4-vision-preview, claude-3-haiku-20240307, claude-3-sonnet-20240229, claude-3-opus-20240229)", default="gpt-4-vision-preview")
+    parser.add_argument("--vision", action="store", help="Vision model to use (gpt-4-vision-preview, claude-3-haiku-20240307, claude-3-sonnet-20240229, claude-3-opus-20240229)", default="claude-3-haiku-20240307")
     parser.add_argument("--address", action="store", default="San Francisco, CA 94115", help="Simulated location")
     options = parser.parse_args()
 
