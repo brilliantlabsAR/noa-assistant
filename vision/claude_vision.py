@@ -28,14 +28,14 @@ blurry, pixelated images. NEVER comment on image quality. Do your best with imag
 ALWAYS respond with a JSON object with these fields:
 
 response: (String) Respond to user as best you can. Be precise, get to the point, and speak as though you actually see the image. One or two sentences.
-web_query: (String) If a web search for up-to-date, location-based, or product info would be more helpful, generate the query here. But if response was thorough enough, leave blank.
+web_query: (String) Web query to answer the user's request.
+web_search_needed: (Bool) Whether to search the web. True ONLY if "response" does not answer the user query precisely enough and up-to-date, location-specific, or product-specific info is needed.
 """
 
 class ModelOutput(BaseModel):
     response: str
     web_query: Optional[str] = None
-    reverse_image_search: Optional[bool] = None
-
+    web_search_needed: Optional[bool] = None
 
 class ClaudeVision(Vision):
     def __init__(self, client: anthropic.AsyncAnthropic, model: str="claude-3-haiku-20240307"):
@@ -92,17 +92,14 @@ class ClaudeVision(Vision):
         )
   
         # Convert to VisionResponse and return
-        print(f"VISION:{response.content[0].text}")
+        print(f"ClaudeVision input: {query}")
+        print(f"ClaudeVision model output: {response.content[0].text}")
         output = self._parse_response(content=response.content[0].text)
         if output is None:
             return None
-        web_query = output.web_query if output.web_query is not None else ""
-        reverse_image_search = output.reverse_image_search is not None and output.reverse_image_search == True
-        if len(web_query) == 0 and reverse_image_search:
-            # If no web query output but reverse image search asked for, just use user query
-            # directly. This is sub-optimal and it would be better to figure out a way to ensure
-            # web_query is generated when reverse_image_search is true.
-            web_query = query
+        web_search_needed = output.web_search_needed and output.web_query is not None and len(output.web_query) > 0
+        web_query = output.web_query if web_search_needed else ""
+        reverse_image_search = False    # for now, we don't perform reverse image search because uncertain where it is really useful
         return VisionOutput(response=output.response, web_query=web_query, reverse_image_search=reverse_image_search)
     
     @staticmethod
