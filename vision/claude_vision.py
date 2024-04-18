@@ -27,7 +27,7 @@ blurry, pixelated images. NEVER comment on image quality. Do your best with imag
 
 ALWAYS respond with a JSON object with these fields:
 
-response: (String) Respond to user as best you can. Be precise, get to the point, and speak as though you actually see the image. One or two sentences.
+response: (String) Respond to user as best you can. Be precise, get to the point, and speak as though you actually see the image.
 web_query: (String) Web query to answer the user's request.
 web_search_needed: (Bool) Whether to search the web. True ONLY if "response" does not answer the user query precisely enough and up-to-date, location-specific, or product-specific info is needed.
 """
