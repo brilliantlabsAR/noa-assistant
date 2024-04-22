@@ -827,7 +827,7 @@ class SerpWebSearch(WebSearch):
     async def search_web(self, query: str, use_photo: bool = False, image_bytes: bytes | None = None, location: str | None = None) -> WebSearchResult:
         await self._lazy_init()
         uule = uule_grabber.uule(location)
-        image_url = await upload_image_to_cdn(session=self._session, image_bytes=image_bytes) if image_bytes else None
+        image_url = await upload_image_to_cdn(session=self._session, image_bytes=image_bytes) if (use_photo and image_bytes is not None) else None
         serp_response = await SerpAPISearch(client=self._client, query=query, engine=self._engine, use_photo=use_photo, image_url=image_url, save_to_file=self._save_to_file, uule=uule)
         summary = serp_response.summarise(max_search_results=self._max_search_results) if serp_response is not None else "No results found"
         return WebSearchResult(summary=summary, search_provider_metadata=serp_response.search_metadata.json_endpoint)

@@ -11,6 +11,7 @@
 #
 
 import argparse
+from datetime import datetime
 from enum import Enum
 import json
 import os
@@ -98,7 +99,8 @@ if __name__ == "__main__":
     parser.add_argument("--endpoint", action="store", default="https://api.brilliant.xyz/dev/noa/mm", help="Address to send request to (Noa server)")
     parser.add_argument("--token", action="store", help="Noa API token")
     parser.add_argument("--test", metavar="name", help="Run specific test")
-    parser.add_argument("--vision", action="store", help="Vision model to use (gpt-4-vision-preview, claude-3-haiku-20240307, claude-3-sonnet-20240229, claude-3-opus-20240229)", default="gpt-4-vision-preview")
+    parser.add_argument("--vision", action="store", help="Vision model to use (gpt-4-vision-preview, claude-3-haiku-20240307, claude-3-sonnet-20240229, claude-3-opus-20240229)", default="claude-3-haiku-20240307")
+    parser.add_argument("--address", action="store", default="San Francisco, CA 94115", help="Simulated location")
     options = parser.parse_args()
 
     # Load tests
@@ -150,11 +152,11 @@ if __name__ == "__main__":
                         "mm": json.dumps({
                                     "prompt": user_message.text,
                                     "messages": history,
-                                    "address": "London",
-                                    "local_time": "Tuesday, March 12, 2024, 7:24 AM",
+                                    "address": options.address,
+                                    "local_time": datetime.now().strftime("%A, %B %d, %Y, %I:%M %p"),
                                     "config": { "search_api": "serp", "engine": "google_lens" },
                                     "experiment": "1",
-                                    "vision_model": options.vision
+                                    "vision": options.vision
                                 }
                             ),
                     }
@@ -162,9 +164,11 @@ if __name__ == "__main__":
                     data = { 
                         "prompt": user_message.text,
                         "messages": json.dumps(history),
+                        "address": options.address,
+                        "local_time": datetime.now().strftime("%A, %B %d, %Y, %I:%M %p"),
                         "config": json.dumps({ "search_api": "serp", "engine": "google_lens" }),
                         "experiment": "1",  # this activates the passthrough to the Python ai-experiments code
-                        "vision_model": options.vision
+                        "vision": options.vision
                     }
                 files = {}
                 if user_message.image is not None:

@@ -41,35 +41,9 @@ You are Noa, a smart personal AI assistant inside the user's AR smart glasses th
 queries and questions. You have access to a photo from the smart glasses camera of what the user was
 seeing at the time they spoke.
 
-Make your responses short (one or two sentences) and precise. Respond without any preamble when giving
-translations, just translate directly. When analyzing the user's view, speak as if you can actually
-see and never make references to the photo or image you analyzed.
-"""
-
-#
-# Vision tool instructions
-#
-
-VISION_PHOTO_DESCRIPTION_SYSTEM_MESSAGE = """
-You are Noa, a smart personal AI assistant inside the user's AR smart glasses that answers all user
-queries and questions. You have access to a photo from the smart glasses camera of what the user was
-seeing at the time they spoke but you NEVER mention the photo or image and instead respond as if you
-are actually seeing.
-
-The camera is unfortunately VERY low quality but the user is counting on you to interpret the
-blurry, pixelated images. NEVER comment on image quality. Do your best with images.
-
-Make your responses short (one or two sentences) and precise. Respond without any preamble when giving
-translations, just translate directly. When analyzing the user's view, speak as if you can actually
-see and never make references to the photo or image you analyzed.
-"""
-
-VISION_GENERATE_SEARCH_DESCRIPTION_FROM_PHOTO_SYSTEM_MESSAGE = """
-you are photo tool, with help of photo and user's query, make a short (1 SENTENCE) and concise google search query that can be searched on internet to answer the user.
-"""
-
-VISION_GENERATE_REVERSE_IMAGE_SEARCH_QUERY_FROM_PHOTO_SYSTEM_MESSAGE = """
-you are photo tool, with help of photo and user's query, make a short (1 SENTENCE) and concise google search query that can be searched on internet with google reverse image search to answer the user.
+Make your responses precise. Respond without any preamble when giving translations, just translate
+directly. When analyzing the user's view, speak as if you can actually see and never make references
+to the photo or image you analyzed.
 """
 
 #
@@ -161,16 +135,8 @@ Use this tool if user refers to something not identifiable from conversation con
                         "type": "string",
                         "description": "User's query to answer, describing what they want answered, expressed as a command that NEVER refers to the photo or image itself"
                     },
-                    PHOTO_TOOL_WEB_SEARCH_PARAM_NAME: {
-                        "type": "boolean",
-                        "description": "True ONLY if user wants to look up facts about contents of photo online (simply identifying what is in the photo does not count), otherwise always false"
-                    },
-                    PHOTO_TOOL_TRANSLATION_PARAM_NAME: {
-                        "type": "boolean",
-                        "description": "Translation of something in user's view required"
-                    }
                 },
-                "required": [ QUERY_PARAM_NAME, PHOTO_TOOL_WEB_SEARCH_PARAM_NAME, PHOTO_TOOL_TRANSLATION_PARAM_NAME ]
+                "required": [ QUERY_PARAM_NAME ]
             },
         },
     },
@@ -335,31 +301,30 @@ async def handle_photo_tool(
         # assistant response is what we want
         return "Error: no photo supplied. Tell user: I think you're referring to something you can see. Can you provide a photo?"
 
-    # Reverse image search? Use vision tool -> search query, then search.
-    # Translation special case: never use reverse image search for it.
-    # NOTE: We do not pass history for now but maybe we should in some cases?
-    if google_reverse_image_search and not translate:
-        capabilities_used.append(Capability.REVERSE_IMAGE_SEARCH)
-        system_prompt = VISION_GENERATE_REVERSE_IMAGE_SEARCH_QUERY_FROM_PHOTO_SYSTEM_MESSAGE + extra_context
-        vision_response = await vision.query_image(
-            system_message=system_prompt,
-            query=query,
-            image_bytes=image_bytes,
-            token_usage_by_model=token_usage_by_model
-        )
-        return await web_search.search_web(query=vision_response.strip("\""), use_photo=True, image_bytes=image_bytes, location=location)
-
-    # Just use vision tool
+    # Vision tool
     capabilities_used.append(Capability.VISION)
-    system_prompt = VISION_PHOTO_DESCRIPTION_SYSTEM_MESSAGE + extra_context
-    response = await vision.query_image(
-        system_message=system_prompt,
+    output = await vision.query_image(
         query=query,
+        extra_context=extra_context,
         image_bytes=image_bytes,
         token_usage_by_model=token_usage_by_model
     )
-    print(f"vision: {response}")
-    return response
+    print(f"Vision: {output}")
+    if output is None:
+        return "Error: vision tool generated an improperly formatted result. Tell user that there was a temporary glitch and ask them to try again."
+
+    # Do we need to perform a web search?
+    if output.web_search_needed():
+        capabilities_used.append(Capability.REVERSE_IMAGE_SEARCH if output.reverse_image_search else Capability.WEB_SEARCH)
+        return await web_search.search_web(
+            query=output.web_query.strip("\""),
+            use_photo=output.reverse_image_search,
+            image_bytes=image_bytes,
+            location=location
+        )
+    
+    # No, just return the vision tool response directly
+    return output.response
 
 def create_debug_tool_info_object(function_name: str, function_args: Dict[str, Any], tool_time: float, search_result: str | None = None) -> Dict[str, Any]:
     """

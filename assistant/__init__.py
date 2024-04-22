@@ -1,4 +1,3 @@
 from .assistant import Assistant, AssistantResponse
 from .gpt_assistant import GPTAssistant
-from .gpt_custom_tools_assistant import GPTCustomToolsAssistant
 from .perplexity_assistant import PerplexityAssistant
