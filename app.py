@@ -24,7 +24,7 @@ from models import Capability, SearchAPI, VisionModel, GenerateImageService, Mul
 from web_search import WebSearch, DataForSEOWebSearch, SerpWebSearch
 from vision import Vision, GPT4Vision, ClaudeVision
 from generate_image import ReplicateGenerateImage
-from assistant import Assistant, AssistantResponse, GPTAssistant, PerplexityAssistant
+from assistant import Assistant, AssistantResponse, GPTAssistant, ClaudeAssistant, PerplexityAssistant
 
 
 ####################################################################################################
@@ -188,7 +188,7 @@ if __name__ == "__main__":
     parser.add_argument("--location", action="store", default="San Francisco", help="Set location address used for all queries (e.g., \"San Francisco\")")
     parser.add_argument("--save", action="store", help="Save DataForSEO response object to file")
     parser.add_argument("--search-api", action="store", default=SEARCH_API, help="Search API to use (serp or dataforseo)")
-    parser.add_argument("--assistant", action="store", default="gpt", help="Assistant to use (gpt or perplexity)")
+    parser.add_argument("--assistant", action="store", default="gpt", help="Assistant to use (gpt, claude, or perplexity)")
     parser.add_argument("--server", action="store_true", help="Start server")
     parser.add_argument("--image", action="store", help="Image filepath for image query")
     parser.add_argument("--vision", action="store", help="Vision model to use (gpt-4-vision-preview, claude-3-haiku-20240307, claude-3-sonnet-20240229, claude-3-opus-20240229)", default="claude-3-haiku-20240307")
@@ -219,6 +219,8 @@ if __name__ == "__main__":
     # Instantiate an assistant
     if options.assistant == "gpt":
         app.state.assistant = GPTAssistant(client=app.state.openai_client)
+    elif options.assistant == "claude":
+        app.state.assistant = ClaudeAssistant(client=app.state.anthropic_client)
     elif options.assistant == "perplexity":
         app.state.assistant = PerplexityAssistant(api_key=PERPLEXITY_API_KEY)
     else:
