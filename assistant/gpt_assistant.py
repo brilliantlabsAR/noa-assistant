@@ -278,7 +278,6 @@ async def handle_general_knowledge_tool(
     """
     return ""
 
-@staticmethod
 async def handle_photo_tool(
     query: str,
     vision: Vision,
@@ -355,10 +354,6 @@ def create_debug_tool_info_object(function_name: str, function_args: Dict[str, A
     if search_result:
         to_return["search_result"] = search_result
     return to_return
-
-@staticmethod
-def create_hallucinated_tool_info_object(function_name: str) -> Dict[str, str]:
-    return { "tool": function_name, "hallucinated": "true" }
 
 
 ####################################################################################################
