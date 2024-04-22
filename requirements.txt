@@ -28,5 +28,5 @@ uule-grabber==0.1.9
 uvicorn==0.27.0.post1
 ffmpeg
 replicate
-anthropic
+anthropic==0.25.6
 aiohttp
