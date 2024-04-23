@@ -348,7 +348,7 @@ class ClaudeAssistant(Assistant):
         # Add user's latest prompt
         user_message = Message(role=Role.USER, content=prompt)
         message_history.append(user_message)
-        message_history = self._prune_history(message_history=message_history)
+        message_history = self._prune_history(message_history=message_history, require_initial_user_message=True)
 
         # Learned context (TODO: implement me)
         learned_context = {}
@@ -452,7 +452,12 @@ class ClaudeAssistant(Assistant):
         return returned_response
 
     @staticmethod
-    def _prune_history(message_history: List[Message]) -> List[Message]:
+    def _prune_history(
+        message_history: List[Message],
+        max_user_messages: int = 4,
+        max_assistant_messages: int = 4,
+        require_initial_user_message: bool = False
+     ) -> List[Message]:
         """
         Prunes down the chat history to save tokens, improving inference speed and reducing cost.
         Generally, preserving all assistant responses is not needed, and only a limited number of
@@ -462,15 +467,25 @@ class ClaudeAssistant(Assistant):
         ----------
         message_history : List[Message]
             Conversation history. This list will be mutated and returned.
+        max_user_messages : int
+            Maximum number of user messages to preserve, beginning with most recent. Note that
+            Claude does not permit duplicate user or assistant messages so this value should be the
+            same as for `max_assistant_messages`.
+        max_assistant_messages : int
+            Maximum number of assistant messages.
+        require_initial_user_message : bool
+            If true, guarantees that the first message in the resulting list is a user message (or
+            an empty list if there are none). This is required for Claude, which expects a strict
+            ordering of messages alternating between user and assistant roles. A user message must
+            always be first.
 
         Returns
         -------
         List[Message]
             Pruned history. This is the same list passed as input.
         """
-        # Limit to most recent 5 user messages and 3 assistant responses
-        assistant_messages_remaining = 3
-        user_messages_remaining = 5
+        assistant_messages_remaining = max_assistant_messages
+        user_messages_remaining = max_user_messages
         message_history.reverse()
         i = 0
         while i < len(message_history):
@@ -489,6 +504,12 @@ class ClaudeAssistant(Assistant):
             else:
                 i += 1
         message_history.reverse()
+
+        # Ensure first message is user message?
+        if require_initial_user_message:
+            while len(message_history) > 0 and message_history[0].role != Role.USER:
+                message_history = message_history[1:]
+
         return message_history
 
     @staticmethod
