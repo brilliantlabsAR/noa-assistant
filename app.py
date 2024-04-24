@@ -153,7 +153,10 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
             voice_prompt = await transcribe(client=request.app.state.openai_client, audio_bytes=audio_bytes)
 
         # Construct final prompt
-        user_prompt = mm.prompt + " " + voice_prompt
+        if mm.prompt is None or len(mm.prompt) == 0 or mm.prompt.isspace() or mm.prompt == "":
+            user_prompt = voice_prompt
+        else:
+            user_prompt = mm.prompt + " " + voice_prompt
 
         # Image data
         image_bytes = (await image.read()) if image else None
