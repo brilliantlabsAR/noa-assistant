@@ -354,6 +354,7 @@ class GPTAssistant(Assistant):
     async def send_to_assistant(
         self,
         prompt: str,
+        noa_system_prompt: str | None,
         image_bytes: bytes | None,
         message_history: List[Message] | None,
         learned_context: Dict[str, str],
@@ -399,7 +400,10 @@ class GPTAssistant(Assistant):
         # Inject context into our copy by appending it to system message. Unclear whether multiple
         # system messages are confusing to the assistant or not but cursory testing shows this
         # seems to work.
-        extra_context_message = Message(role=Role.SYSTEM, content=create_context_system_message(local_time=local_time, location=location_address, learned_context=learned_context))
+        extra_context = create_context_system_message(local_time=local_time, location=location_address, learned_context=learned_context)
+        if noa_system_prompt is not None:
+            extra_context = f"{noa_system_prompt}\n{extra_context}"
+        extra_context_message = Message(role=Role.SYSTEM, content=extra_context)
         message_history.append(extra_context_message)
 
         # Initial GPT call, which may request tool use

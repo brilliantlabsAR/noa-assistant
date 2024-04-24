@@ -194,6 +194,7 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
             assistant, assistant_model = get_assistant(app=app, mm=mm)
             assistant_response: AssistantResponse = await assistant.send_to_assistant(
                 prompt=user_prompt,
+                noa_system_prompt=mm.noa_system_prompt,
                 image_bytes=image_bytes,
                 message_history=mm.messages,
                 learned_context={},
