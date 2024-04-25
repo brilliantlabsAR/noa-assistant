@@ -4,6 +4,8 @@
 # Assistant implementation based on OpenAI's GPT models. This assistant is capable of leveraging
 # separate web search and vision tools.
 #
+# Support also exists for using Groq because it mirrors OpenAI's API.
+#
 
 #
 # TODO:
@@ -21,6 +23,8 @@ from typing import Any, Dict, List
 
 import openai
 from openai.types.chat import ChatCompletionMessageToolCall
+import groq
+from groq.types.chat.chat_completion import ChoiceMessageToolCall
 
 from .assistant import Assistant, AssistantResponse
 from web_search import WebSearch, WebSearchResult
@@ -143,7 +147,7 @@ Use this tool if user refers to something not identifiable from conversation con
 ]
 
 async def handle_tool(
-    tool_call: ChatCompletionMessageToolCall,
+    tool_call: ChatCompletionMessageToolCall | ChoiceMessageToolCall,
     user_message: str,
     image_bytes: bytes | None,
     location: str | None,
@@ -206,7 +210,7 @@ async def handle_tool(
     return tool_output
 
 def prepare_tool_arguments(
-    tool_call: ChatCompletionMessageToolCall,
+    tool_call: ChatCompletionMessageToolCall | ChoiceMessageToolCall,
     user_message: str,
     image_bytes: bytes | None,
     location: str | None,
@@ -291,7 +295,7 @@ async def handle_photo_tool(
     location: str | None = None,
     learned_context: Dict[str,str] | None = None
 ) -> str | WebSearchResult:
-    extra_context = "\n\n" + GPTAssistant._create_context_system_message(local_time=local_time, location=location, learned_context=learned_context)
+    extra_context = "\n\n" + create_context_system_message(local_time=local_time, location=location, learned_context=learned_context)
 
     # If no image bytes (glasses always send image but web playgrounds do not), return an error
     # message for the assistant to use
@@ -357,11 +361,64 @@ def create_debug_tool_info_object(function_name: str, function_args: Dict[str, A
 
 
 ####################################################################################################
+# Context
+#
+# Generation of additional user context. Injected into the conversation to procide the model with
+# information about the user and their environment.
+####################################################################################################
+
+def create_context_system_message(local_time: str | None, location: str | None, learned_context: Dict[str,str] | None) -> str:
+    """
+    Creates a string of additional context that can either be appended to the main system
+    message or as a secondary system message before delivering the assistant response. This is
+    how GPT is made aware of the user's location, local time, and any learned information that
+    was extracted from prior conversation.
+
+    Parameters
+    ----------
+    local_time : str | None
+        Local time, if known.
+    location : str | None
+        Location, as a human readable address, if known.
+    learned_context : Dict[str,str] | None
+        Information learned from prior conversation as key-value pairs, if any.
+
+    Returns
+    -------
+    str
+        Message to combine with existing system message or to inject as a new, extra system
+        message.
+    """
+    # Fixed context: things we know and need not extract from user conversation history
+    context: Dict[str, str] = {}
+    if local_time is not None and len(local_time) > 0:
+        context["current_time"] = local_time
+    else:
+        context["current_time"] = "If asked, tell user you don't know current date or time because clock is broken"
+    if location is not None and len(location) > 0:
+        context["location"] = location
+    else:
+        context["location"] = "You do not know user's location and if asked, tell them so"
+
+    # Merge in learned context
+    if learned_context is not None:
+        context.update(learned_context)
+
+    # Convert to a list to be appended to a system message or treated as a new system message
+    system_message_fragment = CONTEXT_SYSTEM_MESSAGE_PREFIX + "\n".join([ f"<{key}>{value}</{key}>" for key, value in context.items() if value is not None ])
+    return system_message_fragment
+
+
+####################################################################################################
 # Assistant Class
 ####################################################################################################
 
 class GPTAssistant(Assistant):
-    def __init__(self, client: openai.AsyncOpenAI):
+    def __init__(self, client: openai.AsyncOpenAI | groq.AsyncGroq):
+        """
+        Instantiate the assistant using an OpenAI GPT or Groq model. The Groq API is a clone of
+        OpenAI's, allowing a Groq client to be passed.
+        """
         self._client = client
 
     # Refer to definition of Assistant for description of parameters
@@ -378,8 +435,14 @@ class GPTAssistant(Assistant):
     ) -> AssistantResponse:
         start = timeit.default_timer()
 
-        # Default model
-        model = model if model is not None else "gpt-3.5-turbo-1106"
+        # Default model (differs for OpenAI and Groq)
+        if model is None:
+            if type(self._client) == openai.AsyncOpenAI:
+                model = "gpt-3.5-turbo"
+            elif type(self._client) == groq.AsyncGroq:
+                model = "llama3-70b-8192"
+            else:
+                raise TypeError("client must be AsyncOpenAI or AsyncGroq")
 
         # Prepare response datastructure
         returned_response = AssistantResponse(token_usage_by_model={}, capabilities_used=[], response="", debug_tools="")
@@ -411,7 +474,7 @@ class GPTAssistant(Assistant):
         # Inject context into our copy by appending it to system message. Unclear whether multiple
         # system messages are confusing to the assistant or not but cursory testing shows this
         # seems to work.
-        extra_context_message = Message(role=Role.SYSTEM, content=self._create_context_system_message(local_time=local_time, location=location_address, learned_context=learned_context))
+        extra_context_message = Message(role=Role.SYSTEM, content=create_context_system_message(local_time=local_time, location=location_address, learned_context=learned_context))
         message_history.append(extra_context_message)
 
         # Initial GPT call, which may request tool use
@@ -539,48 +602,6 @@ class GPTAssistant(Assistant):
                 i += 1
         message_history.reverse()
         return message_history
-
-    @staticmethod
-    def _create_context_system_message(local_time: str | None, location: str | None, learned_context: Dict[str,str] | None) -> str:
-        """
-        Creates a string of additional context that can either be appended to the main system
-        message or as a secondary system message before delivering the assistant response. This is
-        how GPT is made aware of the user's location, local time, and any learned information that
-        was extracted from prior conversation.
-
-        Parameters
-        ----------
-        local_time : str | None
-            Local time, if known.
-        location : str | None
-            Location, as a human readable address, if known.
-        learned_context : Dict[str,str] | None
-            Information learned from prior conversation as key-value pairs, if any.
-
-        Returns
-        -------
-        str
-            Message to combine with existing system message or to inject as a new, extra system
-            message.
-        """
-        # Fixed context: things we know and need not extract from user conversation history
-        context: Dict[str, str] = {}
-        if local_time is not None and len(local_time) > 0:
-            context["current_time"] = local_time
-        else:
-            context["current_time"] = "If asked, tell user you don't know current date or time because clock is broken"
-        if location is not None and len(location) > 0:
-            context["location"] = location
-        else:
-            context["location"] = "You do not know user's location and if asked, tell them so"
-
-        # Merge in learned context
-        if learned_context is not None:
-            context.update(learned_context)
-
-        # Convert to a list to be appended to a system message or treated as a new system message
-        system_message_fragment = CONTEXT_SYSTEM_MESSAGE_PREFIX + "\n".join([ f"<{key}>{value}</{key}>" for key, value in context.items() if value is not None ])
-        return system_message_fragment
 
     async def _extract_learned_context(self, message_history: List[Message], model: str, token_usage_by_model: Dict[str, TokenUsage]) -> Dict[str,str]:
         # Grab last N user messages

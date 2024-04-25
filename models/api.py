@@ -58,6 +58,7 @@ class GenerateImageService(str, Enum):
 class MultimodalRequest(BaseModel):
     messages: Optional[List[Message]]
     prompt: Optional[str] = ""
+    assistant: Optional[str] = None
     assistant_model: Optional[str] = None
     search_api: Optional[SearchAPI] = SearchAPI.SERP
     search_engine: Optional[SearchEngine] = SearchEngine.GOOGLE
