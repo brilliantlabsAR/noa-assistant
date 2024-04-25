@@ -120,6 +120,7 @@ async def extract_learned_context(
     # Do not forget to count tokens used!
     accumulate_token_usage(
         token_usage_by_model=token_usage_by_model,
+        model=model,
         input_tokens=response.usage.prompt_tokens,
         output_tokens=response.usage.completion_tokens,
         total_tokens=response.usage.total_tokens

@@ -9,7 +9,7 @@ from datetime import datetime
 from io import BytesIO
 import os
 import traceback
-from typing import Annotated, List, Tuple
+from typing import Annotated, Dict, List, Tuple
 
 import openai
 import anthropic
@@ -21,11 +21,11 @@ from pydantic import BaseModel, ValidationError
 from fastapi.exceptions import HTTPException
 from fastapi.encoders import jsonable_encoder
 
-from models import Capability, SearchAPI, VisionModel, GenerateImageService, MultimodalRequest, MultimodalResponse
+from models import Capability, TokenUsage, SearchAPI, VisionModel, GenerateImageService, MultimodalRequest, MultimodalResponse, ExtractLearnedContextRequest, ExtractLearnedContextResponse
 from web_search import WebSearch, DataForSEOWebSearch, SerpWebSearch
 from vision import Vision, GPT4Vision, ClaudeVision
 from generate_image import ReplicateGenerateImage
-from assistant import Assistant, AssistantResponse, GPTAssistant, ClaudeAssistant, PerplexityAssistant
+from assistant import Assistant, AssistantResponse, GPTAssistant, ClaudeAssistant, PerplexityAssistant, extract_learned_context
 
 
 ####################################################################################################
@@ -137,11 +137,11 @@ def get_vision_provider(app, mm: MultimodalRequest) -> Vision:
     return app.state.vision
 
 @app.get('/health')
-async def health():
+async def api_health():
     return {"status":200,"message":"running ok"}
 
 @app.post("/mm")
-async def mm(request: Request, mm: Annotated[str, Form()], audio : UploadFile = None, image: UploadFile = None):
+async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFile = None, image: UploadFile = None):
     try:
         mm: MultimodalRequest = Checker(MultimodalRequest)(data=mm)
         print(mm)
@@ -214,6 +214,36 @@ async def mm(request: Request, mm: Annotated[str, Form()], audio : UploadFile = 
                 input_tokens=0,
                 output_tokens=0,
                 debug_tools=assistant_response.debug_tools
+            )
+        except Exception as e:
+            print(f"{traceback.format_exc()}")
+            raise HTTPException(400, detail=f"{str(e)}: {traceback.format_exc()}")
+
+    except Exception as e:
+        print(f"{traceback.format_exc()}")
+        raise HTTPException(400, detail=f"{str(e)}: {traceback.format_exc()}")
+
+@app.post("/extract_learned_context")
+async def api_extract_learned_context(request: Request, params: Annotated[str, Form()]):
+    try:
+        params: ExtractLearnedContextRequest = Checker(ExtractLearnedContextRequest)(data=params)
+        print(params)
+
+        token_usage_by_model: Dict[str, TokenUsage] = {}
+
+        # Perform extraction
+        try:
+            learned_context = await extract_learned_context(
+                client=request.app.state.openai_client,
+                message_history=params.messages,
+                model="gpt-3.5-turbo",
+                existing_learned_context=params.existing_learned_context,
+                token_usage_by_model=token_usage_by_model
+            )
+
+            return ExtractLearnedContextResponse(
+                learned_context=learned_context,
+                token_usage_by_model=token_usage_by_model
             )
         except Exception as e:
             print(f"{traceback.format_exc()}")
