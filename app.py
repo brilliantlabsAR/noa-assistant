@@ -196,6 +196,7 @@ async def mm(request: Request, mm: Annotated[str, Form()], audio : UploadFile = 
                 prompt=user_prompt,
                 image_bytes=image_bytes,
                 message_history=mm.messages,
+                learned_context={},
                 local_time=local_time,
                 location_address=address,
                 model=assistant_model,
@@ -288,6 +289,7 @@ if __name__ == "__main__":
                 prompt=options.query,
                 image_bytes=image_bytes,
                 message_history=[],
+                learned_context={},
                 local_time=datetime.now().strftime("%A, %B %d, %Y, %I:%M %p"),  # e.g., Friday, March 8, 2024, 11:54 AM
                 location_address=options.location,
                 model=None,

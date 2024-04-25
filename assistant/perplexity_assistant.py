@@ -65,6 +65,7 @@ class PerplexityAssistant(Assistant):
         prompt: str,
         image_bytes: bytes | None, 
         message_history: List[Message] | None, 
+        learned_context: Dict[str, str],
         local_time: str | None,
         location_address: str | None,
         model: str | None,

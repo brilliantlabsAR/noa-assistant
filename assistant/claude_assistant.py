@@ -22,6 +22,7 @@ import anthropic
 from anthropic.types.beta.tools import ToolParam, ToolUseBlock
 
 from .assistant import Assistant, AssistantResponse
+from .context import create_context_system_message
 from web_search import WebSearch, WebSearchResult
 from vision import Vision
 from models import Role, Message, Capability, TokenUsage, accumulate_token_usage
@@ -44,8 +45,6 @@ Make your responses precise and max 5 sentences. Respond without any preamble wh
 just translate directly. When analyzing the user's view, speak as if you can actually see and never
 make references to the photo or image you analyzed.
 """
-
-CONTEXT_SYSTEM_MESSAGE_PREFIX = "## Additional context about the user:"
 
 
 ####################################################################################################
@@ -242,7 +241,7 @@ async def handle_photo_tool(
     location: str | None = None,
     learned_context: Dict[str,str] | None = None
 ) -> str | WebSearchResult:
-    extra_context = "\n\n" + ClaudeAssistant._create_context_system_message(local_time=local_time, location=location, learned_context=learned_context)
+    extra_context = "\n\n" + create_context_system_message(local_time=local_time, location=location, learned_context=learned_context)
 
     # If no image bytes (glasses always send image but web playgrounds do not), return an error
     # message for the assistant to use
@@ -321,6 +320,7 @@ class ClaudeAssistant(Assistant):
         prompt: str,
         image_bytes: bytes | None,
         message_history: List[Message] | None,
+        learned_context: Dict[str, str],
         location_address: str | None,
         local_time: str | None,
         model: str | None,
@@ -350,11 +350,8 @@ class ClaudeAssistant(Assistant):
         message_history.append(user_message)
         message_history = self._prune_history(message_history=message_history, require_initial_user_message=True)
 
-        # Learned context (TODO: implement me)
-        learned_context = {}
-
         # Extra context to inject
-        extra_context = self._create_context_system_message(local_time=local_time, location=location_address, learned_context=learned_context)
+        extra_context = create_context_system_message(local_time=local_time, location=location_address, learned_context=learned_context)
 
         # Initial Claude response -- if no tools, this will be returned as final response
         first_response = await self._client.beta.tools.messages.create(
@@ -511,47 +508,5 @@ class ClaudeAssistant(Assistant):
                 message_history = message_history[1:]
 
         return message_history
-
-    @staticmethod
-    def _create_context_system_message(local_time: str | None, location: str | None, learned_context: Dict[str,str] | None) -> str:
-        """
-        Creates a string of additional context that can either be appended to the main system
-        message or as a secondary system message before delivering the assistant response. This is
-        how Noa is made aware of the user's location, local time, and any learned information that
-        was extracted from prior conversation.
-
-        Parameters
-        ----------
-        local_time : str | None
-            Local time, if known.
-        location : str | None
-            Location, as a human readable address, if known.
-        learned_context : Dict[str,str] | None
-            Information learned from prior conversation as key-value pairs, if any.
-
-        Returns
-        -------
-        str
-            Message to combine with existing system message or to inject as a new, extra system
-            message.
-        """
-        # Fixed context: things we know and need not extract from user conversation history
-        context: Dict[str, str] = {}
-        if local_time is not None and len(local_time) > 0:
-            context["current_time"] = local_time
-        else:
-            context["current_time"] = "If asked, tell user you don't know current date or time because clock is broken"
-        if location is not None and len(location) > 0:
-            context["location"] = location
-        else:
-            context["location"] = "You do not know user's location and if asked, tell them so"
-
-        # Merge in learned context
-        if learned_context is not None:
-            context.update(learned_context)
-
-        # Convert to a list to be appended to a system message or treated as a new system message
-        system_message_fragment = CONTEXT_SYSTEM_MESSAGE_PREFIX + "\n".join([ f"<{key}>{value}</{key}>" for key, value in context.items() if value is not None ])
-        return system_message_fragment
 
 Assistant.register(ClaudeAssistant)

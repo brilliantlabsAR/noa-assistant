@@ -27,6 +27,7 @@ import groq
 from groq.types.chat.chat_completion import ChoiceMessageToolCall
 
 from .assistant import Assistant, AssistantResponse
+from .context import create_context_system_message
 from web_search import WebSearch, WebSearchResult
 from vision import Vision
 from models import Role, Message, Capability, TokenUsage, accumulate_token_usage
@@ -49,35 +50,6 @@ Make your responses precise. Respond without any preamble when giving translatio
 directly. When analyzing the user's view, speak as if you can actually see and never make references
 to the photo or image you analyzed.
 """
-
-#
-# Learned Context
-#
-# Information about the user can be extracted by analyzing batches of their messages and turned into
-# a simple list of key-value pairs. Feeding these back to the assistant will produce more relevant,
-# contextually-aware, and personalized responses.
-#
-
-# These are context keys we try to detect in conversation history over time
-LEARNED_CONTEXT_KEY_DESCRIPTIONS = {
-    "UserName": "User's name",
-    "DOB": "User's date of birth",
-    "Food": "Foods and drinks user has expressed interest in"
-}
-
-LEARNED_CONTEXT_EXTRACTION_SYSTEM_MESSAGE = f"""
-Given a transcript of what the user said, look for any of the following information being revealed:
-
-""" + "\n".join([ key + ": "  + description for key, description in LEARNED_CONTEXT_KEY_DESCRIPTIONS.items() ]) + """
-
-Make sure to list them in this format:
-
-KEY=VALUE
-
-If nothing was found, just say "END". ONLY PRODUCE ITEMS WHEN THE USER HAS ACTUALLY REVEALED THEM.
-"""
-
-CONTEXT_SYSTEM_MESSAGE_PREFIX = "## Additional context about the user:"
 
 
 ####################################################################################################
@@ -361,55 +333,6 @@ def create_debug_tool_info_object(function_name: str, function_args: Dict[str, A
 
 
 ####################################################################################################
-# Context
-#
-# Generation of additional user context. Injected into the conversation to procide the model with
-# information about the user and their environment.
-####################################################################################################
-
-def create_context_system_message(local_time: str | None, location: str | None, learned_context: Dict[str,str] | None) -> str:
-    """
-    Creates a string of additional context that can either be appended to the main system
-    message or as a secondary system message before delivering the assistant response. This is
-    how GPT is made aware of the user's location, local time, and any learned information that
-    was extracted from prior conversation.
-
-    Parameters
-    ----------
-    local_time : str | None
-        Local time, if known.
-    location : str | None
-        Location, as a human readable address, if known.
-    learned_context : Dict[str,str] | None
-        Information learned from prior conversation as key-value pairs, if any.
-
-    Returns
-    -------
-    str
-        Message to combine with existing system message or to inject as a new, extra system
-        message.
-    """
-    # Fixed context: things we know and need not extract from user conversation history
-    context: Dict[str, str] = {}
-    if local_time is not None and len(local_time) > 0:
-        context["current_time"] = local_time
-    else:
-        context["current_time"] = "If asked, tell user you don't know current date or time because clock is broken"
-    if location is not None and len(location) > 0:
-        context["location"] = location
-    else:
-        context["location"] = "You do not know user's location and if asked, tell them so"
-
-    # Merge in learned context
-    if learned_context is not None:
-        context.update(learned_context)
-
-    # Convert to a list to be appended to a system message or treated as a new system message
-    system_message_fragment = CONTEXT_SYSTEM_MESSAGE_PREFIX + "\n".join([ f"<{key}>{value}</{key}>" for key, value in context.items() if value is not None ])
-    return system_message_fragment
-
-
-####################################################################################################
 # Assistant Class
 ####################################################################################################
 
@@ -427,6 +350,7 @@ class GPTAssistant(Assistant):
         prompt: str,
         image_bytes: bytes | None,
         message_history: List[Message] | None,
+        learned_context: Dict[str, str],
         location_address: str | None,
         local_time: str | None,
         model: str | None,
@@ -464,12 +388,6 @@ class GPTAssistant(Assistant):
                 message_history.insert(0, system_message)
         message_history.append(user_message)
         message_history = self._prune_history(message_history=message_history)
-
-        # Update learned context by analyzing last N messages.
-        # TODO: this was for demo purposes and needs to be made more robust. Should be triggered
-        #       periodically or when user asks something for which context is needed.
-        #learned_context.update(await self._extract_learned_context(message_history=message_history, model=model, token_usage_by_model=returned_response.token_usage_by_model))
-        learned_context = {}
 
         # Inject context into our copy by appending it to system message. Unclear whether multiple
         # system messages are confusing to the assistant or not but cursory testing shows this
@@ -602,50 +520,5 @@ class GPTAssistant(Assistant):
                 i += 1
         message_history.reverse()
         return message_history
-
-    async def _extract_learned_context(self, message_history: List[Message], model: str, token_usage_by_model: Dict[str, TokenUsage]) -> Dict[str,str]:
-        # Grab last N user messages
-        max_user_history = 2
-        messages: List[Message] = []
-        for i in range(len(message_history) - 1, -1, -1):
-            if len(messages) >= max_user_history:
-                break
-            if message_history[i].role == Role.USER:
-                messages.append(message_history[i])
-
-        # Insert system message and reverse so that it is in the right order
-        messages.append(Message(role=Role.SYSTEM, content=LEARNED_CONTEXT_EXTRACTION_SYSTEM_MESSAGE))
-        messages.reverse()
-        # print("Context extraction input:")
-        # print(messages)
-
-        # Process
-        response = await self._client.chat.completions.create(
-            model=model,
-            messages=messages
-        )
-
-        # Do not forget to count tokens used!
-        accumulate_token_usage(
-            token_usage_by_model=token_usage_by_model,
-            input_tokens=response.usage.prompt_tokens,
-            output_tokens=response.usage.completion_tokens,
-            total_tokens=response.usage.total_tokens
-        )
-
-        # # Debug: print raw output of context extraction
-        # print("Learned context:")
-        # print(response.choices[0].message.content)
-
-        # Parse it into a dictionary
-        learned_context: Dict[str,str] = {}
-        lines = response.choices[0].message.content.splitlines()
-        for line in lines:
-            parts = line.split("=")
-            if len(parts) == 2:
-                key, value = parts
-                if key in LEARNED_CONTEXT_KEY_DESCRIPTIONS:
-                    learned_context[key] = value
-        return learned_context
 
 Assistant.register(GPTAssistant)
