@@ -129,7 +129,8 @@ async def handle_tool(
     learned_context: Dict[str, str] | None,
     token_usage_by_model: Dict[str, TokenUsage],
     capabilities_used: List[Capability],
-    tools_used: List[Dict[str, Any]]
+    tools_used: List[Dict[str, Any]],
+    timings: Dict[str, str]
 ) -> str:
     tool_functions = {
         SEARCH_TOOL_NAME: web_search.search_web,                # returns WebSearchResult
@@ -159,6 +160,7 @@ async def handle_tool(
     tool_start_time = timeit.default_timer()
     function_response: WebSearchResult | str = await function_to_call(**function_args)
     total_tool_time = round(timeit.default_timer() - tool_start_time, 3)
+    timings[f"tool_{function_name}"] = f"{total_tool_time:.3f}"
 
     # Record capability used (except for case of photo tool, which reports on its own because it
     # can invoke multiple capabilities)
@@ -357,8 +359,6 @@ class GPTAssistant(Assistant):
         web_search: WebSearch,
         vision: Vision
     ) -> AssistantResponse:
-        start = timeit.default_timer()
-
         # Default model (differs for OpenAI and Groq)
         if model is None:
             if type(self._client) == openai.AsyncOpenAI:
@@ -367,6 +367,9 @@ class GPTAssistant(Assistant):
                 model = "llama3-70b-8192"
             else:
                 raise TypeError("client must be AsyncOpenAI or AsyncGroq")
+        
+        # Keep track of time taken
+        timings: Dict[str, str] = {}
 
         # Prepare response datastructure
         returned_response = AssistantResponse(token_usage_by_model={}, capabilities_used=[], response="", debug_tools="")
@@ -396,6 +399,7 @@ class GPTAssistant(Assistant):
         message_history.append(extra_context_message)
 
         # Initial GPT call, which may request tool use
+        t0 = timeit.default_timer()
         first_response = await self._client.chat.completions.create(
             model=model,
             messages=message_history,
@@ -403,6 +407,8 @@ class GPTAssistant(Assistant):
             tool_choice="auto"
         )
         first_response_message = first_response.choices[0].message
+        t1 = timeit.default_timer()
+        timings["llm_initial"] = f"{t1-t0:.3f}"
 
         # Aggregate token counts and potential initial response
         accumulate_token_usage(
@@ -424,6 +430,7 @@ class GPTAssistant(Assistant):
             message_history.append(first_response_message)
 
             # Invoke all the tools in parallel and wait for them all to complete
+            t0 = timeit.default_timer()
             tool_handlers = []
             for tool_call in first_response_message.tool_calls:
                 tool_handlers.append(
@@ -438,10 +445,13 @@ class GPTAssistant(Assistant):
                         learned_context=learned_context,
                         token_usage_by_model=returned_response.token_usage_by_model,
                         capabilities_used=returned_response.capabilities_used,
-                        tools_used=tools_used
+                        tools_used=tools_used,
+                        timings=timings
                     )
                 )
             tool_outputs = await asyncio.gather(*tool_handlers)
+            t1 = timeit.default_timer()
+            timings["tool_calls"] = f"{t1-t0:.3f}"
 
             # Append all the responses for GPT to continue
             for i in range(len(tool_outputs)):
@@ -455,10 +465,13 @@ class GPTAssistant(Assistant):
                 )
 
             # Get final response from model
+            t0 = timeit.default_timer()
             second_response = await self._client.chat.completions.create(
                 model=model,
                 messages=message_history
             )
+            t1 = timeit.default_timer()
+            timings["llm_final"] = f"{t1-t0:.3f}"
 
             # Aggregate tokens and response
             accumulate_token_usage(
@@ -475,10 +488,8 @@ class GPTAssistant(Assistant):
             returned_response.capabilities_used.append(Capability.ASSISTANT_KNOWLEDGE)
 
         # Return final response
+        tools_used.append(timings)
         returned_response.debug_tools = json.dumps(tools_used)
-        stop = timeit.default_timer()
-        print(f"Time taken: {stop-start:.3f}")
-
         return returned_response
 
     @staticmethod

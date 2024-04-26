@@ -113,7 +113,8 @@ async def handle_tool(
     learned_context: Dict[str, str] | None,
     token_usage_by_model: Dict[str, TokenUsage],
     capabilities_used: List[Capability],
-    tools_used: List[Dict[str, Any]]
+    tools_used: List[Dict[str, Any]],
+    timings: Dict[str, str]
 ) -> str:
     tool_functions = {
         SEARCH_TOOL_NAME: web_search.search_web,                # returns WebSearchResult
@@ -143,6 +144,7 @@ async def handle_tool(
     tool_start_time = timeit.default_timer()
     function_response: WebSearchResult | str = await function_to_call(**function_args)
     total_tool_time = round(timeit.default_timer() - tool_start_time, 3)
+    timings[f"tool_{function_name}"] = f"{total_tool_time:.3f}"
 
     # Record capability used (except for case of photo tool, which reports on its own because it
     # can invoke multiple capabilities)
@@ -327,8 +329,10 @@ class ClaudeAssistant(Assistant):
         web_search: WebSearch,
         vision: Vision
     ) -> AssistantResponse:
-        start = timeit.default_timer()
         model = model if model is not None else "claude-3-sonnet-20240229" #"claude-3-haiku-20240307"
+
+        # Keep track of time taken
+        timings: Dict[str, str] = {}
 
         # Prepare response datastructure
         returned_response = AssistantResponse(token_usage_by_model={}, capabilities_used=[], response="", debug_tools="")
@@ -354,6 +358,7 @@ class ClaudeAssistant(Assistant):
         extra_context = create_context_system_message(local_time=local_time, location=location_address, learned_context=learned_context)
 
         # Initial Claude response -- if no tools, this will be returned as final response
+        t0 = timeit.default_timer()
         first_response = await self._client.beta.tools.messages.create(
             model=model,
             system=system_text + "\n\n" + extra_context,
@@ -361,6 +366,8 @@ class ClaudeAssistant(Assistant):
             tools=TOOLS,
             max_tokens=4096
         )
+        t1 = timeit.default_timer()
+        timings["llm_initial"] = f"{t1-t0:.3f}"
 
         # Aggregate token counts
         accumulate_token_usage(
@@ -381,8 +388,8 @@ class ClaudeAssistant(Assistant):
             message_history.append({ "role": first_response.role, "content": first_response.content })
 
             # Invoke all tool requests in parallel and wait for them to complete
+            t0 = timeit.default_timer()
             tool_calls: ToolUseBlock = [ content for content in first_response.content if content.type == "tool_use" ]
-            #print(tool_calls)
             tool_handlers = []
             for tool_call in tool_calls:
                 tool_handlers.append(
@@ -397,11 +404,13 @@ class ClaudeAssistant(Assistant):
                         learned_context=learned_context,
                         token_usage_by_model=returned_response.token_usage_by_model,
                         capabilities_used=returned_response.capabilities_used,
-                        tools_used=tools_used
+                        tools_used=tools_used,
+                        timings=timings
                     )
                 )
             tool_outputs = await asyncio.gather(*tool_handlers)
-            #print(tool_outputs)
+            t1 = timeit.default_timer()
+            timings["tool_calls"] = f"{t1-t0:.3f}"
 
             # Submit tool responses
             tool_response_message = {
@@ -419,6 +428,7 @@ class ClaudeAssistant(Assistant):
             message_history.append(tool_response_message)
             
             # Get final response from model
+            t0 = timeit.default_timer()
             second_response = await self._client.beta.tools.messages.create(
                 model=model,
                 system=system_text + "\n\n" + extra_context,
@@ -426,6 +436,8 @@ class ClaudeAssistant(Assistant):
                 tools=TOOLS,
                 max_tokens=4096
             )
+            t1 = timeit.default_timer()
+            timings["llm_final"] = f"{t1-t0:.3f}"
 
             # Aggregate tokens and response
             accumulate_token_usage(
@@ -442,10 +454,8 @@ class ClaudeAssistant(Assistant):
             returned_response.capabilities_used.append(Capability.ASSISTANT_KNOWLEDGE)
         
         # Return final response
+        tools_used.append(timings)
         returned_response.debug_tools = json.dumps(tools_used)
-        stop = timeit.default_timer()
-        print(f"Time taken: {stop-start:.3f}")
-
         return returned_response
 
     @staticmethod
