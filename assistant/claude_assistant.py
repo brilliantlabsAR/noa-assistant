@@ -19,7 +19,7 @@ import timeit
 from typing import Any, Dict, List
 
 import anthropic
-from anthropic.types.beta.tools import ToolParam, ToolUseBlock
+from anthropic.types.beta.tools import ToolParam, ToolUseBlock, ToolsBetaMessage
 
 from .assistant import Assistant, AssistantResponse
 from .context import create_context_system_message
@@ -435,7 +435,7 @@ class ClaudeAssistant(Assistant):
                 output_tokens=second_response.usage.output_tokens,
                 total_tokens=second_response.usage.input_tokens + second_response.usage.output_tokens
             )
-            returned_response.response = second_response.content[0].text
+            returned_response.response = self._get_final_text_response(final_tool_response=second_response, tool_outputs=tool_outputs)
 
         # If no tools were used, only assistant capability recorded
         if len(returned_response.capabilities_used) == 0:
@@ -447,6 +447,15 @@ class ClaudeAssistant(Assistant):
         print(f"Time taken: {stop-start:.3f}")
 
         return returned_response
+
+    @staticmethod
+    def _get_final_text_response(final_tool_response: ToolsBetaMessage, tool_outputs: List[str]) -> str:
+        # Claude will sometimes return no content in the final response. Presumably, it thinks the
+        # tool outputs are sufficient to use verbatim? We concatenate them here.
+        if final_tool_response.content is None or len(final_tool_response.content) == 0:
+            return " ".join(tool_outputs)
+        else:
+            return final_tool_response.content[0].text
 
     @staticmethod
     def _prune_history(
