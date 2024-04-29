@@ -362,12 +362,12 @@ class GPTAssistant(Assistant):
         # Default model (differs for OpenAI and Groq)
         if model is None:
             if type(self._client) == openai.AsyncOpenAI:
-                model = "gpt-3.5-turbo"
+                model = "gpt-3.5-turbo-1106"
             elif type(self._client) == groq.AsyncGroq:
                 model = "llama3-70b-8192"
             else:
                 raise TypeError("client must be AsyncOpenAI or AsyncGroq")
-        
+
         # Keep track of time taken
         timings: Dict[str, str] = {}
 

@@ -101,7 +101,7 @@ def get_assistant(app, mm: MultimodalRequest) -> Tuple[Assistant, str | None]:
     
     # Return assistant and a valid model for it
     if mm.assistant == "gpt":
-        assistant_model = validate_assistant_model(model=mm.assistant_model, models=[ "gpt-3.5-turbo", "gpt-4-turbo", "gpt-4-turbo-2024-04-09", "gpt-4-turbo-preview", "gpt-4-1106-preview" ])
+        assistant_model = validate_assistant_model(model=mm.assistant_model, models=[ "gpt-3.5-turbo-1106", "gpt-3.5-turbo", "gpt-4-turbo", "gpt-4-turbo-2024-04-09", "gpt-4-turbo-preview", "gpt-4-1106-preview" ])
         return GPTAssistant(client=app.state.openai_client), assistant_model
     elif mm.assistant == "claude":
         assistant_model = validate_assistant_model(model=mm.assistant_model, models=[ "claude-3-sonnet-20240229", "claude-3-haiku-20240307", "claude-3-opus-20240229" ])
@@ -236,7 +236,7 @@ async def api_extract_learned_context(request: Request, params: Annotated[str, F
             learned_context = await extract_learned_context(
                 client=request.app.state.openai_client,
                 message_history=params.messages,
-                model="gpt-3.5-turbo",
+                model="gpt-3.5-turbo-1106",
                 existing_learned_context=params.existing_learned_context,
                 token_usage_by_model=token_usage_by_model
             )
