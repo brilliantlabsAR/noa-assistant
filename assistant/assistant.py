@@ -28,6 +28,7 @@ class Assistant(ABC):
         prompt: str,
         image_bytes: bytes | None, 
         message_history: List[Message] | None, 
+        learned_context: Dict[str, str],
         local_time: str | None,
         location_address: str | None,
         model: str | None,
@@ -45,6 +46,8 @@ class Assistant(ABC):
             Image of what user is looking at.
         message_history : List[Mesage] | None
             Conversation history, excluding current user message we will run inference on.
+        learned_context : Dict[str, str]
+            Learned context about the user, as key-value pairs.
         local_time : str | None
             User's local time in a human-readable format, which helps the LLM answer questions where
             the user indirectly references the date or time. E.g.,

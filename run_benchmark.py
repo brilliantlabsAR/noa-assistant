@@ -90,6 +90,62 @@ def load_binary_file(filepath: str) -> bytes:
 
 
 ####################################################################################################
+# Markdown Report Generation
+####################################################################################################
+
+class ReportGenerator:
+    def __init__(self, test_filepath: str, generate_markdown: bool):
+        self._generate_markdown = generate_markdown
+        if not generate_markdown:
+            return
+        base = os.path.splitext(os.path.basename(test_filepath))[0]
+        filename = f"{base}.md"
+        self._fp = open(file=filename, mode="w")
+        self._fp.write(f"# {test_filepath}\n")
+    
+    def __del__(self):
+        if not self._generate_markdown:
+            return
+        self._fp.close()
+
+    def begin_test(self, name: str):
+        if not self._generate_markdown:
+            return
+        self._fp.write(f"## {name}\n")
+        self._fp.write(f"|Passed?|User|Assistant|Image|Debug|\n")
+        self._fp.write(f"|-------|----|---------|-----|-----|\n")
+
+    def begin_conversation(self):
+        if not self._generate_markdown:
+            return
+        self._fp.write("|\\-\\-\\-\\-\\-\\-\\-\\-|\\-\\-\\-\\-\\-\\-\\-\\-|\\-\\-\\-\\-\\-\\-\\-\\-|\\-\\-\\-\\-\\-\\-\\-\\-|\\-\\-\\-\\-\\-\\-\\-\\-|\n")
+
+    def end_conversation(self):
+        pass
+
+    def add_result(self, user_message: UserMessage, response: MultimodalResponse, assistant_response: str, test_result: TestResult):
+        if not self._generate_markdown:
+            return
+        passed_column = f"{test_result.value}"
+        user_column = self._escape(user_message.text)
+        assistant_column = self._escape(assistant_response)
+        image_column = f"<img src=\"{user_message.image}\" alt=\"image\" style=\"width:200px;\"/>" if user_message.image is not None else ""
+        debug_column = f"```{response.debug_tools}```"
+        self._fp.write(f"|{passed_column}|{user_column}|{assistant_column}|{image_column}|{debug_column}|\n")
+
+    def end_test(self, num_passed: int, num_evaluated: int):
+        if not self._generate_markdown:
+            return
+        self._fp.write(f"**Score: {100.0 * num_passed / num_evaluated : .1f}%**\n")
+
+    @staticmethod
+    def _escape(text: str) -> str:
+        special_chars = "\\`'\"*_{}[]()#+-.!"
+        escaped_text = ''.join(['\\' + char if char in special_chars else char for char in text])
+        return escaped_text.replace("\n", " ")
+
+
+####################################################################################################
 # Main Program
 ####################################################################################################
 
@@ -99,12 +155,16 @@ if __name__ == "__main__":
     parser.add_argument("--endpoint", action="store", default="https://api.brilliant.xyz/dev/noa/mm", help="Address to send request to (Noa server)")
     parser.add_argument("--token", action="store", help="Noa API token")
     parser.add_argument("--test", metavar="name", help="Run specific test")
+    parser.add_argument("--markdown", action="store_true", help="Produce report in markdown file")
     parser.add_argument("--vision", action="store", help="Vision model to use (gpt-4-vision-preview, claude-3-haiku-20240307, claude-3-sonnet-20240229, claude-3-opus-20240229)", default="claude-3-haiku-20240307")
     parser.add_argument("--address", action="store", default="San Francisco, CA 94115", help="Simulated location")
     options = parser.parse_args()
 
     # Load tests
     tests = load_tests(filepath=options.file[0])
+
+    # Markdown report generator
+    report = ReportGenerator(test_filepath=options.file[0], generate_markdown=options.markdown)
 
     # Authorization header
     headers = {
@@ -116,6 +176,7 @@ if __name__ == "__main__":
     total_tokens_in = 0
     total_tokens_out = 0
     localhost = options.endpoint == "localhost"
+
     # Run all active tests
     for test in tests:
         if not options.test:
@@ -127,10 +188,13 @@ if __name__ == "__main__":
                 continue
 
         print(f"Test: {test.name}")
+        report.begin_test(name=test.name)
         num_evaluated = 0
         num_passed = 0
 
         for conversation in test.conversations:
+            report.begin_conversation()
+
             # Create new message history for each conversation
             history = []
             for user_message in conversation:
@@ -209,6 +273,7 @@ if __name__ == "__main__":
                     #print(f"Tokens: in={content['input_tokens']}, out={content['output_tokens']} %out={pct_out:.0f}%")
                     print(f"Test: {test_result}")
                     print("")
+                    report.add_result(user_message=user_message, response=mm_response, assistant_response=assistant_response, test_result=test_result)
 
                     total_user_prompts += 1
                     total_tokens_in += mm_response.input_tokens
@@ -217,10 +282,13 @@ if __name__ == "__main__":
                 except Exception as e:
                     print(f"Error: {e}")
 
+            report.end_conversation()
+
         # Print test results
         print("")
         print(f"TEST RESULTS: {test.name}")
         print(f"  Score: {num_passed}/{num_evaluated} = {100.0 * num_passed / num_evaluated : .1f}%")
+        report.end_test(num_passed=num_passed, num_evaluated=num_evaluated)
 
     # Summary
     print(f"User messages: {total_user_prompts}")

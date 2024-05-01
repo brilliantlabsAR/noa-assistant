@@ -1,19 +1,16 @@
 #
-# gpt_assistant.py
+# claude_assistant.py
 #
-# Assistant implementation based on OpenAI's GPT models. This assistant is capable of leveraging
-# separate web search and vision tools.
-#
-# Support also exists for using Groq because it mirrors OpenAI's API.
+# Assistant implementation based on Anthropic's Claude series of models.
 #
 
 #
 # TODO:
 # -----
-# - Move to streaming completions and detect timeouts when a threshold duration elapses since the
-#   the last token was emitted.
-# - Figure out how to get assistant to stop referring to "photo" and "image" when analyzing photos.
-# - Improve people search.
+# - Factor out functions common to ClaudeAssistant and GPTAssistant.
+# - Occasionally Claude returns errors, debug these.
+# - Claude sometimes messes up with follow-up questions and then refers to internal context. We may
+#   need to try embedding extra context inside of the latest user message.
 #
 
 import asyncio
@@ -21,10 +18,8 @@ import json
 import timeit
 from typing import Any, Dict, List
 
-import openai
-from openai.types.chat import ChatCompletionMessageToolCall
-import groq
-from groq.types.chat.chat_completion import ChoiceMessageToolCall
+import anthropic
+from anthropic.types.beta.tools import ToolParam, ToolUseBlock, ToolsBetaMessage
 
 from .assistant import Assistant, AssistantResponse
 from .context import create_context_system_message
@@ -46,9 +41,9 @@ You are Noa, a smart personal AI assistant inside the user's AR smart glasses th
 queries and questions. You have access to a photo from the smart glasses camera of what the user was
 seeing at the time they spoke.
 
-Make your responses precise. Respond without any preamble when giving translations, just translate
-directly. When analyzing the user's view, speak as if you can actually see and never make references
-to the photo or image you analyzed.
+Make your responses precise and max 5 sentences. Respond without any preamble when giving translations,
+just translate directly. When analyzing the user's view, speak as if you can actually see and never
+make references to the photo or image you analyzed.
 """
 
 
@@ -60,66 +55,55 @@ DUMMY_SEARCH_TOOL_NAME = "general_knowledge_search"
 SEARCH_TOOL_NAME = "web_search"
 PHOTO_TOOL_NAME = "analyze_photo"
 QUERY_PARAM_NAME = "query"
-PHOTO_TOOL_WEB_SEARCH_PARAM_NAME = "google_reverse_image_search"
-PHOTO_TOOL_TRANSLATION_PARAM_NAME = "translate"
 
-TOOLS = [
+TOOLS: List[ToolParam] = [
     {
-        "type": "function",
-        "function": {
-            "name": DUMMY_SEARCH_TOOL_NAME,
-            "description": """Non-recent trivia and general knowledge""",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    QUERY_PARAM_NAME: {
-                        "type": "string",
-                        "description": "search query",
-                    },
-                },
-                "required": [ QUERY_PARAM_NAME ]
+        "name": DUMMY_SEARCH_TOOL_NAME,
+        "description": "Non-recent trivia and general knowledge",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                QUERY_PARAM_NAME: {
+                    "type": "string",
+                    "description": "search query",
+                }
             },
-        },
+            "required": [ QUERY_PARAM_NAME ]
+        }
     },
     {
-        "type": "function",
-        "function": {
-            "name": SEARCH_TOOL_NAME,
-            "description": """Up-to-date information on news, retail products, current events, local conditions, and esoteric knowledge""",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    QUERY_PARAM_NAME: {
-                        "type": "string",
-                        "description": "search query",
-                    },
-                },
-                "required": [ QUERY_PARAM_NAME ]
+        "name": SEARCH_TOOL_NAME,
+        "description": "Up-to-date information on news, retail products, current events, local conditions, and esoteric knowledge",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                QUERY_PARAM_NAME: {
+                    "type": "string",
+                    "description": "search query",
+                }
             },
-        },
+            "required": [ QUERY_PARAM_NAME ]
+        }
     },
     {
-        "type": "function",
-        "function": {
-            "name": PHOTO_TOOL_NAME,
-            "description": """Analyzes or describes the photo you have from the user's current perspective.
+        "name": PHOTO_TOOL_NAME,
+        "description": """Analyzes or describes the photo you have from the user's current perspective.
 Use this tool if user refers to something not identifiable from conversation context, such as with a demonstrative pronoun.""",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    QUERY_PARAM_NAME: {
-                        "type": "string",
-                        "description": "User's query to answer, describing what they want answered, expressed as a command that NEVER refers to the photo or image itself"
-                    },
-                },
-                "required": [ QUERY_PARAM_NAME ]
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                QUERY_PARAM_NAME: {
+                    "type": "string",
+                    "description": "User's query to answer, describing what they want answered, expressed as a command that NEVER refers to the photo or image itself"
+                }
             },
-        },
-    },
+            "required": [ QUERY_PARAM_NAME ]
+        }
+    }
 ]
 
 async def handle_tool(
-    tool_call: ChatCompletionMessageToolCall | ChoiceMessageToolCall,
+    tool_call: ToolUseBlock,
     user_message: str,
     image_bytes: bytes | None,
     location: str | None,
@@ -138,10 +122,10 @@ async def handle_tool(
         DUMMY_SEARCH_TOOL_NAME: handle_general_knowledge_tool,  # returns str
     }
 
-    function_name = tool_call.function.name
+    function_name = tool_call.name
     function_to_call = tool_functions.get(function_name)
     if function_to_call is None:
-        # Error: GPT hallucinated a tool
+        # Error: Hallucinated a tool
         return "Error: you hallucinated a tool that doesn't exist. Tell user you had trouble interpreting the request and ask them to rephrase it."
 
     function_args = prepare_tool_arguments(
@@ -168,7 +152,7 @@ async def handle_tool(
         capabilities_used.append(Capability.WEB_SEARCH)
     elif function_name == DUMMY_SEARCH_TOOL_NAME:
         capabilities_used.append(Capability.ASSISTANT_KNOWLEDGE)
-
+    
     tools_used.append(
         create_debug_tool_info_object(
             function_name=function_name,
@@ -178,13 +162,13 @@ async def handle_tool(
         )
     )
 
-    # Format response appropriately
+     # Format response appropriately
     assert isinstance(function_response, WebSearchResult) or isinstance(function_response, str)
     tool_output = function_response.summary if isinstance(function_response, WebSearchResult) else function_response
     return tool_output
 
 def prepare_tool_arguments(
-    tool_call: ChatCompletionMessageToolCall | ChoiceMessageToolCall,
+    tool_call: ToolUseBlock,
     user_message: str,
     image_bytes: bytes | None,
     location: str | None,
@@ -195,20 +179,16 @@ def prepare_tool_arguments(
     token_usage_by_model: Dict[str, TokenUsage],
     capabilities_used: List[Capability]
 ) -> Dict[str, Any]:
-    # Get function description we passed to GPT. This function should be called after we have
+    # Get function description we passed to Claude. This function should be called after we have
     # validated that a valid tool call was generated.
-    function_description = [ description for description in TOOLS if description["function"]["name"] == tool_call.function.name ][0]
-    function_parameters = function_description["function"]["parameters"]["properties"]
+    function_description = [ description for description in TOOLS if description["name"] == tool_call.name ][0]
+    function_parameters = function_description["input_schema"]["properties"]
 
     # Parse arguments and ensure they are all str or bool for now. Drop any that aren't.
-    args: Dict[str, Any] = {}
-    try:
-        args = json.loads(tool_call.function.arguments)
-    except:
-        pass
+    args = tool_call.input.copy()
     for param_name in list(args.keys()):
         if param_name not in function_parameters:
-            # GPT hallucinated a parameter
+            # Hallucinated parameter
             del args[param_name]
             continue
         if function_parameters[param_name]["type"] == "string" and type(args[param_name]) != str:
@@ -226,7 +206,7 @@ def prepare_tool_arguments(
     args[QUERY_PARAM_NAME] = args[QUERY_PARAM_NAME] if QUERY_PARAM_NAME in args else user_message
 
     # Photo tool additional parameters we need to inject
-    if tool_call.function.name == PHOTO_TOOL_NAME:
+    if tool_call.name == PHOTO_TOOL_NAME:
         args["image_bytes"] = image_bytes
         args["vision"] = vision
         args["web_search"] = web_search
@@ -245,14 +225,8 @@ async def handle_general_knowledge_tool(
     learned_context: Dict[str,str] | None = None,
 ) -> str:
     """
-    Dummy general knowledge tool that tricks GPT into generating an answer directly instead of
-    reaching for web search. GPT knows that the web contains information on virtually everything, so
-    it tends to overuse web search. One solution is to very carefully enumerate the cases for which
-    web search is appropriate, but this is tricky. Should "Albert Einstein's birthday" require a web
-    search? Probably not, as GPT has this knowledge baked in. The trick we use here is to create a
-    "general knowledge" tool that contains any information Wikipedia or an encyclopedia would have
-    (a reasonable proxy for things GPT knows). We return an empty string, which forces GPT to
-    produce its own response at the expense of a little bit of latency for the tool call.
+    Dummy general knowledge tool that tricks Claude into generating an answer directly instead of
+    reaching for web search.
     """
     return ""
 
@@ -262,8 +236,8 @@ async def handle_photo_tool(
     web_search: WebSearch,
     token_usage_by_model: Dict[str, TokenUsage],
     capabilities_used: List[Capability],
-    google_reverse_image_search: bool = False,  # default in case GPT doesn't generate it
-    translate: bool = False,                    # default in case GPT doesn't generate it
+    google_reverse_image_search: bool = False,
+    translate: bool = False,
     image_bytes: bytes | None = None,
     local_time: str | None = None,
     location: str | None = None,
@@ -338,14 +312,10 @@ def create_debug_tool_info_object(function_name: str, function_args: Dict[str, A
 # Assistant Class
 ####################################################################################################
 
-class GPTAssistant(Assistant):
-    def __init__(self, client: openai.AsyncOpenAI | groq.AsyncGroq):
-        """
-        Instantiate the assistant using an OpenAI GPT or Groq model. The Groq API is a clone of
-        OpenAI's, allowing a Groq client to be passed.
-        """
+class ClaudeAssistant(Assistant):
+    def __init__(self, client: anthropic.AsyncAnthropic):
         self._client = client
-
+    
     # Refer to definition of Assistant for description of parameters
     async def send_to_assistant(
         self,
@@ -359,14 +329,7 @@ class GPTAssistant(Assistant):
         web_search: WebSearch,
         vision: Vision
     ) -> AssistantResponse:
-        # Default model (differs for OpenAI and Groq)
-        if model is None:
-            if type(self._client) == openai.AsyncOpenAI:
-                model = "gpt-3.5-turbo-1106"
-            elif type(self._client) == groq.AsyncGroq:
-                model = "llama3-70b-8192"
-            else:
-                raise TypeError("client must be AsyncOpenAI or AsyncGroq")
+        model = model if model is not None else "claude-3-sonnet-20240229" #"claude-3-haiku-20240307"
 
         # Keep track of time taken
         timings: Dict[str, str] = {}
@@ -375,64 +338,60 @@ class GPTAssistant(Assistant):
         returned_response = AssistantResponse(token_usage_by_model={}, capabilities_used=[], response="", debug_tools="")
 
         # Make copy of message history so we can modify it in-flight during tool use
-        message_history = message_history.copy() if message_history else None
+        message_history = message_history.copy() if message_history else []
 
-        # Add user message to message history or create a new one if necessary
+        # Claude does not have a system role. Rather, a top-level system parameter must be supplied.
+        # However, our API uses the OpenAI format. Therefore, we search for an existing system
+        # message and, if it was supplied by the client, use that as the system message.
+        system_text = SYSTEM_MESSAGE
+        client_system_messages = [ message for message in message_history if message.role == Role.SYSTEM ]
+        if len(client_system_messages) > 0:
+            system_text = client_system_messages[0].content
+        message_history = [ message for message in message_history if message.role != Role.SYSTEM ]
+
+        # Add user's latest prompt
         user_message = Message(role=Role.USER, content=prompt)
-        system_message = Message(role=Role.SYSTEM, content=SYSTEM_MESSAGE)
-        if not message_history:
-            message_history = []
-        if len(message_history) == 0:
-            message_history = [ system_message ]
-        else:
-            # Insert system message before message history, unless client transmitted one they want
-            # to use
-            if len(message_history) > 0 and message_history[0].role != Role.SYSTEM:
-                message_history.insert(0, system_message)
         message_history.append(user_message)
-        message_history = self._prune_history(message_history=message_history)
+        message_history = self._prune_history(message_history=message_history, require_initial_user_message=True)
 
-        # Inject context into our copy by appending it to system message. Unclear whether multiple
-        # system messages are confusing to the assistant or not but cursory testing shows this
-        # seems to work.
-        extra_context_message = Message(role=Role.SYSTEM, content=create_context_system_message(local_time=local_time, location=location_address, learned_context=learned_context))
-        message_history.append(extra_context_message)
+        # Extra context to inject
+        extra_context = create_context_system_message(local_time=local_time, location=location_address, learned_context=learned_context)
 
-        # Initial GPT call, which may request tool use
+        # Initial Claude response -- if no tools, this will be returned as final response
         t0 = timeit.default_timer()
-        first_response = await self._client.chat.completions.create(
+        first_response = await self._client.beta.tools.messages.create(
             model=model,
+            system=system_text + "\n\n" + extra_context,
             messages=message_history,
             tools=TOOLS,
-            tool_choice="auto"
+            max_tokens=4096
         )
-        first_response_message = first_response.choices[0].message
         t1 = timeit.default_timer()
         timings["llm_initial"] = f"{t1-t0:.3f}"
 
-        # Aggregate token counts and potential initial response
+        # Aggregate token counts
         accumulate_token_usage(
             token_usage_by_model=returned_response.token_usage_by_model,
             model=model,
-            input_tokens=first_response.usage.prompt_tokens,
-            output_tokens=first_response.usage.completion_tokens,
-            total_tokens=first_response.usage.total_tokens
+            input_tokens=first_response.usage.input_tokens,
+            output_tokens=first_response.usage.output_tokens,
+            total_tokens=first_response.usage.input_tokens + first_response.usage.output_tokens
         )
 
-        # If there are no tool requests, the initial response will be returned
-        returned_response.response = first_response_message.content
-
-        # Handle tool requests
+        # Handle tools
         tools_used = []
         tools_used.append({ "learned_context": learned_context })   # log context here for now
-        if first_response_message.tool_calls:
-            # Append initial response to history, which may include tool use
-            message_history.append(first_response_message)
+        if first_response.stop_reason != "tool_use":
+            returned_response.response = first_response.content[0].text
+        else:
+            # Append tool message to history, as per Anthropic's example at https://github.com/anthropics/anthropic-sdk-python/blob/9fad441043ff7bfdf8786b64b1e4bbb27105b112/examples/tools.py
+            message_history.append({ "role": first_response.role, "content": first_response.content })
 
-            # Invoke all the tools in parallel and wait for them all to complete
+            # Invoke all tool requests in parallel and wait for them to complete
             t0 = timeit.default_timer()
+            tool_calls: ToolUseBlock = [ content for content in first_response.content if content.type == "tool_use" ]
             tool_handlers = []
-            for tool_call in first_response_message.tool_calls:
+            for tool_call in tool_calls:
                 tool_handlers.append(
                     handle_tool(
                         tool_call=tool_call,
@@ -453,22 +412,29 @@ class GPTAssistant(Assistant):
             t1 = timeit.default_timer()
             timings["tool_calls"] = f"{t1-t0:.3f}"
 
-            # Append all the responses for GPT to continue
+            # Submit tool responses
+            tool_response_message = {
+                "role": "user",
+                "content": []
+            }
             for i in range(len(tool_outputs)):
-                message_history.append(
+                tool_response_message["content"].append(
                     {
-                        "tool_call_id": first_response_message.tool_calls[i].id,
-                        "role": "tool",
-                        "name": first_response_message.tool_calls[i].function.name,
-                        "content": tool_outputs[i],
+                        "type": "tool_result",
+                        "tool_use_id": tool_calls[i].id,
+                        "content": [ { "type": "text", "text": tool_outputs[i] } ]
                     }
                 )
-
+            message_history.append(tool_response_message)
+            
             # Get final response from model
             t0 = timeit.default_timer()
-            second_response = await self._client.chat.completions.create(
+            second_response = await self._client.beta.tools.messages.create(
                 model=model,
-                messages=message_history
+                system=system_text + "\n\n" + extra_context,
+                messages=message_history,
+                tools=TOOLS,
+                max_tokens=4096
             )
             t1 = timeit.default_timer()
             timings["llm_final"] = f"{t1-t0:.3f}"
@@ -477,23 +443,37 @@ class GPTAssistant(Assistant):
             accumulate_token_usage(
                 token_usage_by_model=returned_response.token_usage_by_model,
                 model=model,
-                input_tokens=second_response.usage.prompt_tokens,
-                output_tokens=second_response.usage.completion_tokens,
-                total_tokens=second_response.usage.total_tokens
+                input_tokens=second_response.usage.input_tokens,
+                output_tokens=second_response.usage.output_tokens,
+                total_tokens=second_response.usage.input_tokens + second_response.usage.output_tokens
             )
-            returned_response.response = second_response.choices[0].message.content
+            returned_response.response = self._get_final_text_response(final_tool_response=second_response, tool_outputs=tool_outputs)
 
         # If no tools were used, only assistant capability recorded
         if len(returned_response.capabilities_used) == 0:
             returned_response.capabilities_used.append(Capability.ASSISTANT_KNOWLEDGE)
-
+        
         # Return final response
         tools_used.append(timings)
         returned_response.debug_tools = json.dumps(tools_used)
         return returned_response
 
     @staticmethod
-    def _prune_history(message_history: List[Message]) -> List[Message]:
+    def _get_final_text_response(final_tool_response: ToolsBetaMessage, tool_outputs: List[str]) -> str:
+        # Claude will sometimes return no content in the final response. Presumably, it thinks the
+        # tool outputs are sufficient to use verbatim? We concatenate them here.
+        if final_tool_response.content is None or len(final_tool_response.content) == 0:
+            return " ".join(tool_outputs)
+        else:
+            return final_tool_response.content[0].text
+
+    @staticmethod
+    def _prune_history(
+        message_history: List[Message],
+        max_user_messages: int = 4,
+        max_assistant_messages: int = 4,
+        require_initial_user_message: bool = False
+     ) -> List[Message]:
         """
         Prunes down the chat history to save tokens, improving inference speed and reducing cost.
         Generally, preserving all assistant responses is not needed, and only a limited number of
@@ -503,15 +483,25 @@ class GPTAssistant(Assistant):
         ----------
         message_history : List[Message]
             Conversation history. This list will be mutated and returned.
+        max_user_messages : int
+            Maximum number of user messages to preserve, beginning with most recent. Note that
+            Claude does not permit duplicate user or assistant messages so this value should be the
+            same as for `max_assistant_messages`.
+        max_assistant_messages : int
+            Maximum number of assistant messages.
+        require_initial_user_message : bool
+            If true, guarantees that the first message in the resulting list is a user message (or
+            an empty list if there are none). This is required for Claude, which expects a strict
+            ordering of messages alternating between user and assistant roles. A user message must
+            always be first.
 
         Returns
         -------
         List[Message]
             Pruned history. This is the same list passed as input.
         """
-        # Limit to most recent 5 user messages and 3 assistant responses
-        assistant_messages_remaining = 3
-        user_messages_remaining = 5
+        assistant_messages_remaining = max_assistant_messages
+        user_messages_remaining = max_user_messages
         message_history.reverse()
         i = 0
         while i < len(message_history):
@@ -530,6 +520,12 @@ class GPTAssistant(Assistant):
             else:
                 i += 1
         message_history.reverse()
+
+        # Ensure first message is user message?
+        if require_initial_user_message:
+            while len(message_history) > 0 and message_history[0].role != Role.USER:
+                message_history = message_history[1:]
+
         return message_history
 
-Assistant.register(GPTAssistant)
+Assistant.register(ClaudeAssistant)

@@ -58,6 +58,7 @@ class GenerateImageService(str, Enum):
 class MultimodalRequest(BaseModel):
     messages: Optional[List[Message]]
     prompt: Optional[str] = ""
+    assistant: Optional[str] = None
     assistant_model: Optional[str] = None
     search_api: Optional[SearchAPI] = SearchAPI.SERP
     search_engine: Optional[SearchEngine] = SearchEngine.GOOGLE
@@ -80,3 +81,11 @@ class MultimodalResponse(BaseModel):
     input_tokens: int
     output_tokens: int
     debug_tools: str
+
+class ExtractLearnedContextRequest(BaseModel):
+    messages: List[Message]
+    existing_learned_context: Dict[str, str]
+
+class ExtractLearnedContextResponse(BaseModel):
+    learned_context: Dict[str, str]
+    token_usage_by_model: Dict[str, TokenUsage]

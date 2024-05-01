@@ -9,10 +9,11 @@ from datetime import datetime
 from io import BytesIO
 import os
 import traceback
-from typing import Annotated
+from typing import Annotated, Dict, List, Tuple
 
 import openai
 import anthropic
+import groq
 from pydantic import BaseModel, ValidationError
 from pydub import AudioSegment
 from fastapi import FastAPI, status, Form, UploadFile, Request
@@ -20,11 +21,11 @@ from pydantic import BaseModel, ValidationError
 from fastapi.exceptions import HTTPException
 from fastapi.encoders import jsonable_encoder
 
-from models import Capability, SearchAPI, VisionModel, GenerateImageService, MultimodalRequest, MultimodalResponse
+from models import Capability, TokenUsage, SearchAPI, VisionModel, GenerateImageService, MultimodalRequest, MultimodalResponse, ExtractLearnedContextRequest, ExtractLearnedContextResponse
 from web_search import WebSearch, DataForSEOWebSearch, SerpWebSearch
 from vision import Vision, GPT4Vision, ClaudeVision
 from generate_image import ReplicateGenerateImage
-from assistant import Assistant, AssistantResponse, GPTAssistant, PerplexityAssistant
+from assistant import Assistant, AssistantResponse, GPTAssistant, ClaudeAssistant, PerplexityAssistant, extract_learned_context
 
 
 ####################################################################################################
@@ -70,6 +71,51 @@ def transcribe(client: openai.OpenAI, audio_bytes: bytes) -> str:
     )
     return transcript.text
 
+def validate_assistant_model(model: str | None, models: List[str]) -> str:
+    """
+    Ensures a valid model is selected.
+
+    Parameters
+    ----------
+    model : str | None
+        Model name to use.
+    models : List[str]
+        List of valid models. The first model is the default model.
+
+    Returns
+    -------
+    str
+        If the model name is in the list, returns it as-is, otherwise returns the first model in the
+        list by default.
+    """
+    if model is None or model not in models:
+        return models[0]
+    return model
+
+def get_assistant(app, mm: MultimodalRequest) -> Tuple[Assistant, str | None]:
+    assistant_model = mm.assistant_model
+
+    # Default assistant if none selected
+    if mm.assistant is None or (mm.assistant not in [ "gpt", "claude", "groq", "perplexity" ]):
+        return app.state.assistant, None    # None for assistant_model will force assistant to use its own internal default choice
+    
+    # Return assistant and a valid model for it
+    if mm.assistant == "gpt":
+        assistant_model = validate_assistant_model(model=mm.assistant_model, models=[ "gpt-3.5-turbo-1106", "gpt-3.5-turbo", "gpt-4-turbo", "gpt-4-turbo-2024-04-09", "gpt-4-turbo-preview", "gpt-4-1106-preview" ])
+        return GPTAssistant(client=app.state.openai_client), assistant_model
+    elif mm.assistant == "claude":
+        assistant_model = validate_assistant_model(model=mm.assistant_model, models=[ "claude-3-sonnet-20240229", "claude-3-haiku-20240307", "claude-3-opus-20240229" ])
+        return ClaudeAssistant(client=app.state.anthropic_client), assistant_model
+    elif mm.assistant == "groq":
+        assistant_model = validate_assistant_model(model=mm.assistant_model, models=[ "llama3-70b-8192", "llama3-8b-8192", "mixtral-8x7b-32768", "gemma-7b-it" ])
+        return GPTAssistant(client=app.state.groq_client), assistant_model # Groq uses GPTAssistant
+    elif mm.assistant == "perplexity":
+        assistant_model = "pplx-7b-online"
+        return PerplexityAssistant(api_key=PERPLEXITY_API_KEY), assistant_model
+    
+    # Should never fall through to here
+    return None, ""
+
 def get_web_search_provider(app, mm: MultimodalRequest) -> WebSearch:
     # Use provider specified in request options
     if mm.search_api == SearchAPI.SERP:
@@ -91,11 +137,11 @@ def get_vision_provider(app, mm: MultimodalRequest) -> Vision:
     return app.state.vision
 
 @app.get('/health')
-async def health():
+async def api_health():
     return {"status":200,"message":"running ok"}
 
 @app.post("/mm")
-async def mm(request: Request, mm: Annotated[str, Form()], audio : UploadFile = None, image: UploadFile = None):
+async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFile = None, image: UploadFile = None):
     try:
         mm: MultimodalRequest = Checker(MultimodalRequest)(data=mm)
         print(mm)
@@ -145,14 +191,15 @@ async def mm(request: Request, mm: Annotated[str, Form()], audio : UploadFile = 
         
         # Call the assistant and deliver the response
         try:
-            assistant: Assistant = app.state.assistant
+            assistant, assistant_model = get_assistant(app=app, mm=mm)
             assistant_response: AssistantResponse = await assistant.send_to_assistant(
                 prompt=user_prompt,
                 image_bytes=image_bytes,
                 message_history=mm.messages,
+                learned_context={},
                 local_time=local_time,
                 location_address=address,
-                model=mm.assistant_model,
+                model=assistant_model,
                 web_search=web_search,
                 vision=vision
             )
@@ -176,6 +223,36 @@ async def mm(request: Request, mm: Annotated[str, Form()], audio : UploadFile = 
         print(f"{traceback.format_exc()}")
         raise HTTPException(400, detail=f"{str(e)}: {traceback.format_exc()}")
 
+@app.post("/extract_learned_context")
+async def api_extract_learned_context(request: Request, params: Annotated[str, Form()]):
+    try:
+        params: ExtractLearnedContextRequest = Checker(ExtractLearnedContextRequest)(data=params)
+        print(params)
+
+        token_usage_by_model: Dict[str, TokenUsage] = {}
+
+        # Perform extraction
+        try:
+            learned_context = await extract_learned_context(
+                client=request.app.state.openai_client,
+                message_history=params.messages,
+                model="gpt-3.5-turbo-1106",
+                existing_learned_context=params.existing_learned_context,
+                token_usage_by_model=token_usage_by_model
+            )
+
+            return ExtractLearnedContextResponse(
+                learned_context=learned_context,
+                token_usage_by_model=token_usage_by_model
+            )
+        except Exception as e:
+            print(f"{traceback.format_exc()}")
+            raise HTTPException(400, detail=f"{str(e)}: {traceback.format_exc()}")
+
+    except Exception as e:
+        print(f"{traceback.format_exc()}")
+        raise HTTPException(400, detail=f"{str(e)}: {traceback.format_exc()}")
+
 
 ####################################################################################################
 # Program Entry Point
@@ -188,7 +265,7 @@ if __name__ == "__main__":
     parser.add_argument("--location", action="store", default="San Francisco", help="Set location address used for all queries (e.g., \"San Francisco\")")
     parser.add_argument("--save", action="store", help="Save DataForSEO response object to file")
     parser.add_argument("--search-api", action="store", default=SEARCH_API, help="Search API to use (serp or dataforseo)")
-    parser.add_argument("--assistant", action="store", default="gpt", help="Assistant to use (gpt or perplexity)")
+    parser.add_argument("--assistant", action="store", default="gpt", help="Assistant to use (gpt, claude, groq, or perplexity)")
     parser.add_argument("--server", action="store_true", help="Start server")
     parser.add_argument("--image", action="store", help="Image filepath for image query")
     parser.add_argument("--vision", action="store", help="Vision model to use (gpt-4-vision-preview, claude-3-haiku-20240307, claude-3-sonnet-20240229, claude-3-opus-20240229)", default="claude-3-haiku-20240307")
@@ -197,8 +274,9 @@ if __name__ == "__main__":
     # AI clients
     app.state.openai_client = openai.AsyncOpenAI()
     app.state.anthropic_client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+    app.state.groq_client = groq.AsyncGroq()
 
-    # Instantiate a web search provider
+    # Instantiate a default web search provider
     app.state.web_search = None
     if options.search_api == "serp":
         app.state.web_search = SerpWebSearch(save_to_file=options.save, engine="google")
@@ -207,7 +285,7 @@ if __name__ == "__main__":
     else:
         raise ValueError("--search-api must be either 'serp' or 'dataforseo")
 
-    # Instantiate a vision provider
+    # Instantiate a default vision provider
     app.state.vision = None
     if options.vision == "gpt-4-vision-preview":
         app.state.vision = GPT4Vision(client=app.state.openai_client)
@@ -216,9 +294,13 @@ if __name__ == "__main__":
     else:
         raise ValueError("--vision must be one of: gpt-4-vision-preview, claude-3-haiku-20240307, claude-3-sonnet-20240229, claude-3-opus-20240229")
 
-    # Instantiate an assistant
+    # Instantiate a default assistant
     if options.assistant == "gpt":
         app.state.assistant = GPTAssistant(client=app.state.openai_client)
+    elif options.assistant == "claude":
+        app.state.assistant = ClaudeAssistant(client=app.state.anthropic_client)
+    elif options.assistant == "groq":
+        app.state.assistant = GPTAssistant(client=app.state.groq_client)
     elif options.assistant == "perplexity":
         app.state.assistant = PerplexityAssistant(api_key=PERPLEXITY_API_KEY)
     else:
@@ -237,6 +319,7 @@ if __name__ == "__main__":
                 prompt=options.query,
                 image_bytes=image_bytes,
                 message_history=[],
+                learned_context={},
                 local_time=datetime.now().strftime("%A, %B %d, %Y, %I:%M %p"),  # e.g., Friday, March 8, 2024, 11:54 AM
                 location_address=options.location,
                 model=None,

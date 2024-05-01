@@ -1,0 +1,19 @@
+[
+    {
+        "active": true,
+        "name": "frame_camera",
+        "default_image": "tests/images/black.jpg",
+        "conversations": [
+            [
+                { "text": "what is this?", "image": "tests/images/frame_Captures/test_camera_image1.webp", "capabilities": [ "vision" ] },
+                { "text": "what is this?", "image": "tests/images/frame_Captures/test_camera_image2.webp", "capabilities": [ "vision" ] },
+                { "text": "what is this?", "image": "tests/images/frame_Captures/test_camera_image3.webp", "capabilities": [ "vision" ] },
+                { "text": "what is this?", "image": "tests/images/frame_Captures/test_camera_image4.webp", "capabilities": [ "vision" ] },
+                { "text": "what is this?", "image": "tests/images/frame_Captures/test_camera_image5.webp", "capabilities": [ "vision" ] },
+                { "text": "what is this?", "image": "tests/images/frame_Captures/test_camera_image6.webp", "capabilities": [ "vision" ] },
+                { "text": "what is this?", "image": "tests/images/frame_Captures/test_camera_image7.webp", "capabilities": [ "vision" ] },
+                { "text": "what is this?", "image": "tests/images/frame_Captures/test_camera_image8.webp", "capabilities": [ "vision" ] }
+            ]
+        ]
+    }
+]
