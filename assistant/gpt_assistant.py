@@ -158,7 +158,11 @@ async def handle_tool(
     )
 
     tool_start_time = timeit.default_timer()
-    function_response: WebSearchResult | str = await function_to_call(**function_args)
+    function_response: WebSearchResult | str = "Error: Tool call failed. Give the user your best answer or apologize and invite them to try again."
+    try:
+        function_response = await function_to_call(**function_args)
+    except:
+        pass
     total_tool_time = round(timeit.default_timer() - tool_start_time, 3)
     timings[f"tool_{function_name}"] = f"{total_tool_time:.3f}"
 
