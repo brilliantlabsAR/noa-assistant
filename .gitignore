@@ -5,6 +5,8 @@
 *.json
 *.jpg
 *.png
+*.md
+*.html
 !docs/noa_assistant.drawio.png
 !.env.example
 !requirements.txt
