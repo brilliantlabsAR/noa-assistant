@@ -118,7 +118,7 @@ class ReportGenerator:
     def begin_conversation(self):
         if not self._generate_markdown:
             return
-        self._fp.write("|\-\-\-\-\-\-\-\-|\-\-\-\-\-\-\-\-|\-\-\-\-\-\-\-\-|\-\-\-\-\-\-\-\-|\-\-\-\-\-\-\-\-|")
+        self._fp.write("|\\-\\-\\-\\-\\-\\-\\-\\-|\\-\\-\\-\\-\\-\\-\\-\\-|\\-\\-\\-\\-\\-\\-\\-\\-|\\-\\-\\-\\-\\-\\-\\-\\-|\\-\\-\\-\\-\\-\\-\\-\\-|\n")
 
     def end_conversation(self):
         pass
@@ -136,13 +136,13 @@ class ReportGenerator:
     def end_test(self, num_passed: int, num_evaluated: int):
         if not self._generate_markdown:
             return
-        self._fp.write(f"**Score: {100.0 * num_passed / num_evaluated : .1f}%**")
+        self._fp.write(f"**Score: {100.0 * num_passed / num_evaluated : .1f}%**\n")
 
     @staticmethod
     def _escape(text: str) -> str:
         special_chars = "\\`'\"*_{}[]()#+-.!"
         escaped_text = ''.join(['\\' + char if char in special_chars else char for char in text])
-        return escaped_text
+        return escaped_text.replace("\n", " ")
 
 
 ####################################################################################################
