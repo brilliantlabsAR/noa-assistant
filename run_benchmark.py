@@ -101,7 +101,7 @@ class ReportGenerator:
         base = os.path.splitext(os.path.basename(test_filepath))[0]
         filename = f"{base}.md"
         self._fp = open(file=filename, mode="w")
-        self._fp.write(f"# {test_filepath}\n")
+        self._fp.write(f"# {test_filepath}\n\n")
     
     def __del__(self):
         if not self._generate_markdown:
@@ -111,7 +111,7 @@ class ReportGenerator:
     def begin_test(self, name: str):
         if not self._generate_markdown:
             return
-        self._fp.write(f"## {name}\n")
+        self._fp.write(f"## {name}\n\n")
         self._fp.write(f"|Passed?|User|Assistant|Image|Debug|\n")
         self._fp.write(f"|-------|----|---------|-----|-----|\n")
 
@@ -136,7 +136,7 @@ class ReportGenerator:
     def end_test(self, num_passed: int, num_evaluated: int):
         if not self._generate_markdown:
             return
-        self._fp.write(f"**Score: {100.0 * num_passed / num_evaluated : .1f}%**\n")
+        self._fp.write(f"**Score: {100.0 * num_passed / num_evaluated : .1f}%**\n\n")
 
     @staticmethod
     def _escape(text: str) -> str:
