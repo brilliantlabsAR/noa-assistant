@@ -468,24 +468,40 @@ class GPTAssistant(Assistant):
                     }
                 )
 
-            # Get final response from model
+            # Get final response from model using streaming completions
             t0 = timeit.default_timer()
-            second_response = await self._client.chat.completions.create(
+            streaming_response = await self._client.chat.completions.create(
                 model=model,
-                messages=message_history
+                messages=message_history,
+                stream=True
             )
+            returned_response.response = ""
+            #TODO: how to async-for with timeout?
+            async for chunk in streaming_response:
+                # Each chunk is a token
+                chunk_text = chunk.choices[0].delta.content
+                if chunk_text is None:
+                    continue
+                returned_response.response += chunk_text
+                accumulate_token_usage(
+                    token_usage_by_model=returned_response.token_usage_by_model,
+                    model=model,
+                    input_tokens=0, #TODO: tiktoken to compute this
+                    output_tokens=1,
+                    total_tokens=1
+                )
             t1 = timeit.default_timer()
             timings["llm_final"] = f"{t1-t0:.3f}"
 
             # Aggregate tokens and response
-            accumulate_token_usage(
-                token_usage_by_model=returned_response.token_usage_by_model,
-                model=model,
-                input_tokens=second_response.usage.prompt_tokens,
-                output_tokens=second_response.usage.completion_tokens,
-                total_tokens=second_response.usage.total_tokens
-            )
-            returned_response.response = second_response.choices[0].message.content
+            # accumulate_token_usage(
+            #     token_usage_by_model=returned_response.token_usage_by_model,
+            #     model=model,
+            #     input_tokens=second_response.usage.prompt_tokens,
+            #     output_tokens=second_response.usage.completion_tokens,
+            #     total_tokens=second_response.usage.total_tokens
+            # )
+            #returned_response.response = second_response.choices[0].message.content
 
         # If no tools were used, only assistant capability recorded
         if len(returned_response.capabilities_used) == 0:
