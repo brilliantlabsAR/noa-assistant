@@ -406,6 +406,23 @@ class GPTAssistant(Assistant):
         extra_context_message = Message(role=Role.SYSTEM, content=extra_context)
         message_history.append(extra_context_message)
 
+        # Speculative vision call
+        speculative_vision_task = asyncio.ensure_future(
+            handle_photo_tool(
+                query=prompt,
+                vision=vision,
+                web_search=web_search,
+                token_usage_by_model=returned_response.token_usage_by_model,
+                capabilities_used=returned_response.capabilities_used,
+                google_reverse_image_search=False,
+                translate=False,
+                image_bytes=image_bytes,
+                local_time=local_time,
+                location=location_address,
+                learned_context=learned_context
+            )
+        )
+
         # Initial GPT call, which may request tool use
         t0 = timeit.default_timer()
         first_response = await self._client.chat.completions.create(
@@ -437,29 +454,38 @@ class GPTAssistant(Assistant):
             # Append initial response to history, which may include tool use
             message_history.append(first_response_message)
 
-            # Invoke all the tools in parallel and wait for them all to complete
+            # Invoke all the tools in parallel and wait for them all to complete. Vision is special:
+            # we already have a speculative query in progress.
             t0 = timeit.default_timer()
             tool_handlers = []
             for tool_call in first_response_message.tool_calls:
-                tool_handlers.append(
-                    handle_tool(
-                        tool_call=tool_call,
-                        user_message=prompt,
-                        image_bytes=image_bytes,
-                        location=location_address,
-                        local_time=local_time,
-                        web_search=web_search,
-                        vision=vision,
-                        learned_context=learned_context,
-                        token_usage_by_model=returned_response.token_usage_by_model,
-                        capabilities_used=returned_response.capabilities_used,
-                        tools_used=tools_used,
-                        timings=timings
+                if tool_call.function.name == PHOTO_TOOL_NAME:
+                    tool_handlers.append(speculative_vision_task)
+                else:
+                    tool_handlers.append(
+                        handle_tool(
+                            tool_call=tool_call,
+                            user_message=prompt,
+                            image_bytes=image_bytes,
+                            location=location_address,
+                            local_time=local_time,
+                            web_search=web_search,
+                            vision=vision,
+                            learned_context=learned_context,
+                            token_usage_by_model=returned_response.token_usage_by_model,
+                            capabilities_used=returned_response.capabilities_used,
+                            tools_used=tools_used,
+                            timings=timings
+                        )
                     )
-                )
             tool_outputs = await asyncio.gather(*tool_handlers)
             t1 = timeit.default_timer()
             timings["tool_calls"] = f"{t1-t0:.3f}"
+
+            # Ensure everything is str
+            for i in range(len(tool_outputs)):
+                if isinstance(tool_outputs[i], WebSearchResult):
+                    tool_outputs[i] = tool_outputs[i].summary
 
             # Append all the responses for GPT to continue
             for i in range(len(tool_outputs)):
