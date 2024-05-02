@@ -25,6 +25,7 @@ import openai
 from openai.types.chat import ChatCompletionMessageToolCall
 import groq
 from groq.types.chat.chat_completion import ChoiceMessageToolCall
+import tiktoken
 
 from .assistant import Assistant, AssistantResponse
 from .context import create_context_system_message
@@ -342,6 +343,8 @@ def create_debug_tool_info_object(function_name: str, function_args: Dict[str, A
 # Assistant Class
 ####################################################################################################
 
+_encoding = tiktoken.get_encoding("cl100k_base")    # for now, assume this encoding
+
 class GPTAssistant(Assistant):
     def __init__(self, client: openai.AsyncOpenAI | groq.AsyncGroq):
         """
@@ -371,7 +374,7 @@ class GPTAssistant(Assistant):
                 model = "llama3-70b-8192"
             else:
                 raise TypeError("client must be AsyncOpenAI or AsyncGroq")
-
+            
         # Keep track of time taken
         timings: Dict[str, str] = {}
 
@@ -476,7 +479,6 @@ class GPTAssistant(Assistant):
                 stream=True
             )
             returned_response.response = ""
-            #TODO: how to async-for with timeout?
             async for chunk in streaming_response:
                 # Each chunk is a token
                 chunk_text = chunk.choices[0].delta.content
@@ -486,12 +488,16 @@ class GPTAssistant(Assistant):
                 accumulate_token_usage(
                     token_usage_by_model=returned_response.token_usage_by_model,
                     model=model,
-                    input_tokens=0, #TODO: tiktoken to compute this
+                    input_tokens=0,
                     output_tokens=1,
                     total_tokens=1
                 )
             t1 = timeit.default_timer()
             timings["llm_final"] = f"{t1-t0:.3f}"
+
+            # Need to estimate input tokens
+            input_tokens = len(_encoding.encode(SYSTEM_MESSAGE + " " + " ".join(tool_outputs)))
+            print(f"INPUT TOKENS={input_tokens}")
 
             # Aggregate tokens and response
             # accumulate_token_usage(
