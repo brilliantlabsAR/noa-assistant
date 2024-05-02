@@ -1,0 +1,20 @@
+[
+    {
+        "active": true,
+        "name": "frame_camera_laziness",
+        "default_image": "tests/images/black.jpg",
+        "conversations": [
+            [
+                { "text": "what am i looking at right now?", "image": "tests/images/frame_Captures/Laptop_Discord_1.jpg", "capabilities": [ "vision" ] },
+                { "text": "can you guess which app I'm running?", "image": "tests/images/frame_Captures/Laptop_Discord_2.jpg", "capabilities": [ "vision" ] },
+                { "text": "what do you see outside my window right now?", "image": "tests/images/frame_Captures/Window_Overexposed.jpg", "capabilities": [ "vision" ] },
+                { "text": "can you tell what kind of tree is outside?", "image": "tests/images/frame_Captures/Window_Tree.jpg", "capabilities": [ "vision" ] },
+                { "text": "what do you see on the shelves in front of me?", "image": "tests/images/frame_Captures/Shelves_Blurry_1.jpg", "capabilities": [ "vision" ] },
+                { "text": "can you be a bit more specific than that? tell me about the decorative items.", "image": "tests/images/frame_Captures/Shelves_Blurry_2.jpg", "capabilities": [ "vision" ] },
+                { "text": "how many fingers am i holding up?", "image": "tests/images/frame_Captures/Fingers_Overexposed_1.jpg", "capabilities": [ "vision" ] },
+                { "text": "how many fingers am i holding up?", "image": "tests/images/frame_Captures/Fingers_Overexposed_2.jpg", "capabilities": [ "vision" ] },
+                { "text": "how many fingers do you see?", "image": "tests/images/frame_Captures/Fingers_Overexposed_3.jpg", "capabilities": [ "vision" ] }
+            ]
+        ]
+    }
+]
