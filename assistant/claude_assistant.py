@@ -263,19 +263,23 @@ async def handle_photo_tool(
     print(f"Vision: {output}")
     if output is None:
         return "Error: vision tool generated an improperly formatted result. Tell user that there was a temporary glitch and ask them to try again."
-
-    # Do we need to perform a web search?
-    if output.web_search_needed():
-        capabilities_used.append(Capability.REVERSE_IMAGE_SEARCH if output.reverse_image_search else Capability.WEB_SEARCH)
-        return await web_search.search_web(
-            query=output.web_query.strip("\""),
-            use_photo=output.reverse_image_search,
-            image_bytes=image_bytes,
-            location=location
-        )
     
-    # No, just return the vision tool response directly
-    return output.response
+    # If no web search required, output vision response directly
+    if not output.web_search_needed():
+        return output.response
+
+    # Perform web search and produce a synthesized response telling assistant where each piece of
+    # information came from. Web search will lack important vision information. We need to return
+    # both and have the assistant figure out which info to use.
+    capabilities_used.append(Capability.REVERSE_IMAGE_SEARCH if output.reverse_image_search else Capability.WEB_SEARCH)
+    web_result = await web_search.search_web(
+        query=output.web_query.strip("\""),
+        use_photo=output.reverse_image_search,
+        image_bytes=image_bytes,
+        location=location
+    )
+    
+    return f"HERE IS WHAT YOU SEE: {output.response}\nEXTRA INFO FROM WEB: {web_result }"
 
 def create_debug_tool_info_object(function_name: str, function_args: Dict[str, Any], tool_time: float, search_result: str | None = None) -> Dict[str, Any]:
     """
