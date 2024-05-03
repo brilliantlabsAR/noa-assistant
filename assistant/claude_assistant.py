@@ -279,7 +279,7 @@ async def handle_photo_tool(
         location=location
     )
     
-    return f"HERE IS WHAT YOU SEE: {output.response}\nEXTRA INFO FROM WEB: {web_result }"
+    return f"HERE IS WHAT YOU SEE: {output.response}\nEXTRA INFO FROM WEB: {web_result}"
 
 def create_debug_tool_info_object(function_name: str, function_args: Dict[str, Any], tool_time: float, search_result: str | None = None) -> Dict[str, Any]:
     """
