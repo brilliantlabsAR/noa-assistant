@@ -10,6 +10,7 @@
 #
 # TODO:
 # -----
+# - Speculative vision tool should create a proper tools_used entry.
 # - Move to streaming completions and detect timeouts when a threshold duration elapses since the
 #   the last token was emitted.
 # - Figure out how to get assistant to stop referring to "photo" and "image" when analyzing photos.
@@ -362,7 +363,8 @@ class GPTAssistant(Assistant):
         local_time: str | None,
         model: str | None,
         web_search: WebSearch,
-        vision: Vision
+        vision: Vision,
+        speculative_vision: bool
     ) -> AssistantResponse:
         # Default model (differs for OpenAI and Groq)
         if model is None:
@@ -406,8 +408,12 @@ class GPTAssistant(Assistant):
         extra_context_message = Message(role=Role.SYSTEM, content=extra_context)
         message_history.append(extra_context_message)
 
+        # Start timing of initial LLM call and entire process
+        t0 = timeit.default_timer()
+        tstart = t0
+
         # Speculative vision call
-        speculative_vision_task = asyncio.ensure_future(
+        speculative_vision_task = asyncio.create_task(
             handle_photo_tool(
                 query=prompt,
                 vision=vision,
@@ -421,16 +427,24 @@ class GPTAssistant(Assistant):
                 location=location_address,
                 learned_context=learned_context
             )
-        )
+        ) if speculative_vision else None
 
         # Initial GPT call, which may request tool use
-        t0 = timeit.default_timer()
-        first_response = await self._client.chat.completions.create(
-            model=model,
-            messages=message_history,
-            tools=TOOLS,
-            tool_choice="auto"
+        initial_llm_task = asyncio.create_task(
+            self._client.chat.completions.create(
+                model=model,
+                messages=message_history,
+                tools=TOOLS,
+                tool_choice="auto"
+            )
         )
+
+        # Kick off both tasks but ensure LLM completes
+        initial_tasks = [ initial_llm_task ]
+        if speculative_vision_task is not None:
+            initial_tasks.append(speculative_vision_task)
+        completed_tasks, pending_tasks = await asyncio.wait(initial_tasks, return_when=asyncio.FIRST_COMPLETED)
+        first_response = await initial_llm_task
         first_response_message = first_response.choices[0].message
         t1 = timeit.default_timer()
         timings["llm_initial"] = f"{t1-t0:.3f}"
@@ -459,8 +473,16 @@ class GPTAssistant(Assistant):
             t0 = timeit.default_timer()
             tool_handlers = []
             for tool_call in first_response_message.tool_calls:
-                if tool_call.function.name == PHOTO_TOOL_NAME:
+                if tool_call.function.name == PHOTO_TOOL_NAME and speculative_vision_task is not None:
                     tool_handlers.append(speculative_vision_task)
+                    tools_used.append(
+                        create_debug_tool_info_object(
+                            function_name=PHOTO_TOOL_NAME,
+                            function_args={},
+                            tool_time=-1,
+                            search_result=None
+                        )
+                    )
                 else:
                     tool_handlers.append(
                         handle_tool(
@@ -516,10 +538,18 @@ class GPTAssistant(Assistant):
                 total_tokens=second_response.usage.total_tokens
             )
             returned_response.response = second_response.choices[0].message.content
+        else:
+            # No tools, cancel speculative vision task
+            if speculative_vision_task is not None:
+                speculative_vision_task.cancel()
 
         # If no tools were used, only assistant capability recorded
         if len(returned_response.capabilities_used) == 0:
             returned_response.capabilities_used.append(Capability.ASSISTANT_KNOWLEDGE)
+
+        # Total time
+        t1 = timeit.default_timer()
+        timings["total_time"] = f"{t1-tstart:.3f}"
 
         # Return final response
         tools_used.append(timings)

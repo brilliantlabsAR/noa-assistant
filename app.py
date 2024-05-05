@@ -194,6 +194,7 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
         
         # Call the assistant and deliver the response
         try:
+            print(f"SPECULATIVE VISION: {mm.speculative_vision}")
             assistant, assistant_model = get_assistant(app=app, mm=mm)
             assistant_response: AssistantResponse = await assistant.send_to_assistant(
                 prompt=user_prompt,
@@ -205,7 +206,8 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
                 location_address=address,
                 model=assistant_model,
                 web_search=web_search,
-                vision=vision
+                vision=vision,
+                speculative_vision=mm.speculative_vision
             )
 
             return MultimodalResponse(
