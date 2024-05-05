@@ -68,8 +68,7 @@ class MultimodalRequest(BaseModel):
     address: Optional[str] = None
     latitude: Optional[str] = None
     longitude: Optional[str] = None
-    vision: Optional[VisionModel] = None
-    direct_vision_response: Optional[bool] = True
+    vision: Optional[VisionModel] = None,
     speculative_vision: Optional[bool] = True
     generate_image: Optional[int] = 0
     generate_image_service: Optional[GenerateImageService] = GenerateImageService.REPLICATE

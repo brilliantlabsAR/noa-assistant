@@ -194,6 +194,7 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
         
         # Call the assistant and deliver the response
         try:
+            print(f"SPECULATIVE VISION: {mm.speculative_vision}")
             assistant, assistant_model = get_assistant(app=app, mm=mm)
             assistant_response: AssistantResponse = await assistant.send_to_assistant(
                 prompt=user_prompt,
@@ -206,7 +207,6 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
                 model=assistant_model,
                 web_search=web_search,
                 vision=vision,
-                direct_vision_response=mm.direct_vision_response,
                 speculative_vision=mm.speculative_vision
             )
 
@@ -331,8 +331,7 @@ if __name__ == "__main__":
                 model=None,
                 web_search=app.state.web_search,
                 vision=app.state.vision,
-                direct_vision_response=False,
-                speculative_vision=False
+
             )
         response = asyncio.run(run_query())
         print(response)

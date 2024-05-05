@@ -72,7 +72,6 @@ class PerplexityAssistant(Assistant):
         model: str | None,
         web_search: WebSearch,
         vision: Vision,
-        direct_vision_response: bool,
         speculative_vision: bool
     ) -> AssistantResponse:
         await self._lazy_init()

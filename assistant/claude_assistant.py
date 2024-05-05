@@ -333,7 +333,6 @@ class ClaudeAssistant(Assistant):
         model: str | None,
         web_search: WebSearch,
         vision: Vision,
-        direct_vision_response: bool,
         speculative_vision: bool
     ) -> AssistantResponse:
         model = model if model is not None else "claude-3-sonnet-20240229" #"claude-3-haiku-20240307"
