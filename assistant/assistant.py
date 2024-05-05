@@ -35,6 +35,7 @@ class Assistant(ABC):
         model: str | None,
         web_search: WebSearch,
         vision: Vision,
+        direct_vision_response : bool,
         speculative_vision: bool
     ) -> AssistantResponse:
         """
@@ -67,6 +68,11 @@ class Assistant(ABC):
             needed.
         vision : Vision
             Vision AI provider, invoked when understanding of what user is looking at is required.
+        direct_vision_response : bool
+            If vision is the *only* tool invoked, whether to return its raw response directly
+            without a second LLM pass to synthesize the results. This may produce responses that are
+            more literal and verbose, and less consistent with the tone of the conversation (because
+            the vision tool lacks full conversational context).
         speculative_vision : bool
             Whether to perform speculative vision queries (if supported by assistant). This will run
             the vision tool in parallel with the initial LLM request in *all* cases, using the user 

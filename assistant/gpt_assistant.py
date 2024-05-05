@@ -63,6 +63,8 @@ PHOTO_TOOL_NAME = "analyze_photo"
 QUERY_PARAM_NAME = "query"
 PHOTO_TOOL_WEB_SEARCH_PARAM_NAME = "google_reverse_image_search"
 PHOTO_TOOL_TRANSLATION_PARAM_NAME = "translate"
+PHOTO_TOOL_RESPONSE_VISION_PREAMBLE = "HERE IS WHAT YOU SEE"
+PHOTO_TOOL_RESPONSE_WEB_PREAMBLE = "EXTRA INFO FROM WEB"
 
 TOOLS = [
     {
@@ -306,7 +308,7 @@ async def handle_photo_tool(
         location=location
     )
     
-    return f"HERE IS WHAT YOU SEE: {output.response}\nEXTRA INFO FROM WEB: {web_result}"
+    return f"{PHOTO_TOOL_RESPONSE_VISION_PREAMBLE}: {output.response}\n{PHOTO_TOOL_RESPONSE_WEB_PREAMBLE}: {web_result}"
     
 def create_debug_tool_info_object(function_name: str, function_args: Dict[str, Any], tool_time: float, search_result: str | None = None) -> Dict[str, Any]:
     """
@@ -364,6 +366,7 @@ class GPTAssistant(Assistant):
         model: str | None,
         web_search: WebSearch,
         vision: Vision,
+        direct_vision_response: bool,
         speculative_vision: bool
     ) -> AssistantResponse:
         # Default model (differs for OpenAI and Groq)
@@ -464,6 +467,7 @@ class GPTAssistant(Assistant):
         # Handle tool requests
         tools_used = []
         tools_used.append({ "learned_context": learned_context })   # log context here for now
+        only_vision_tool_invoked = len(first_response_message.tool_calls) == 1 and first_response_message.tool_calls[0].function.name == PHOTO_TOOL_NAME
         if first_response_message.tool_calls:
             # Append initial response to history, which may include tool use
             message_history.append(first_response_message)
@@ -509,35 +513,44 @@ class GPTAssistant(Assistant):
                 if isinstance(tool_outputs[i], WebSearchResult):
                     tool_outputs[i] = tool_outputs[i].summary
 
-            # Append all the responses for GPT to continue
-            for i in range(len(tool_outputs)):
-                message_history.append(
-                    {
-                        "tool_call_id": first_response_message.tool_calls[i].id,
-                        "role": "tool",
-                        "name": first_response_message.tool_calls[i].function.name,
-                        "content": tool_outputs[i],
-                    }
+            # Generate final response
+            if only_vision_tool_invoked and direct_vision_response and not tool_outputs[0].startswith(PHOTO_TOOL_RESPONSE_VISION_PREAMBLE):
+                # Shortcut: when only the vision tool is invoked, its response can be returned
+                # directly, at the cost of being more literal and verbose, if the response consists
+                # *only* of vision output (without extra web context). Vision tool lacks 
+                # conversational context. 
+                returned_response.response = tool_outputs[0]
+                timings["llm_final"] = "0"
+            else:
+                # Append all the responses for GPT to continue
+                for i in range(len(tool_outputs)):
+                    message_history.append(
+                        {
+                            "tool_call_id": first_response_message.tool_calls[i].id,
+                            "role": "tool",
+                            "name": first_response_message.tool_calls[i].function.name,
+                            "content": tool_outputs[i],
+                        }
+                    )
+
+                # Get final response from model
+                t0 = timeit.default_timer()
+                second_response = await self._client.chat.completions.create(
+                    model=model,
+                    messages=message_history
                 )
+                t1 = timeit.default_timer()
+                timings["llm_final"] = f"{t1-t0:.3f}"
 
-            # Get final response from model
-            t0 = timeit.default_timer()
-            second_response = await self._client.chat.completions.create(
-                model=model,
-                messages=message_history
-            )
-            t1 = timeit.default_timer()
-            timings["llm_final"] = f"{t1-t0:.3f}"
-
-            # Aggregate tokens and response
-            accumulate_token_usage(
-                token_usage_by_model=returned_response.token_usage_by_model,
-                model=model,
-                input_tokens=second_response.usage.prompt_tokens,
-                output_tokens=second_response.usage.completion_tokens,
-                total_tokens=second_response.usage.total_tokens
-            )
-            returned_response.response = second_response.choices[0].message.content
+                # Aggregate tokens and response
+                accumulate_token_usage(
+                    token_usage_by_model=returned_response.token_usage_by_model,
+                    model=model,
+                    input_tokens=second_response.usage.prompt_tokens,
+                    output_tokens=second_response.usage.completion_tokens,
+                    total_tokens=second_response.usage.total_tokens
+                )
+                returned_response.response = second_response.choices[0].message.content
         else:
             # No tools, cancel speculative vision task
             if speculative_vision_task is not None:
