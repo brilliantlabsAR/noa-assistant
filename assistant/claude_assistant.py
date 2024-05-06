@@ -324,6 +324,7 @@ class ClaudeAssistant(Assistant):
     async def send_to_assistant(
         self,
         prompt: str,
+        noa_system_prompt: str | None,
         image_bytes: bytes | None,
         message_history: List[Message] | None,
         learned_context: Dict[str, str],
@@ -360,6 +361,8 @@ class ClaudeAssistant(Assistant):
 
         # Extra context to inject
         extra_context = create_context_system_message(local_time=local_time, location=location_address, learned_context=learned_context)
+        if noa_system_prompt is not None:
+            extra_context = f"{noa_system_prompt}\n{extra_context}"
 
         # Initial Claude response -- if no tools, this will be returned as final response
         t0 = timeit.default_timer()

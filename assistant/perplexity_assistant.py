@@ -63,6 +63,7 @@ class PerplexityAssistant(Assistant):
     async def send_to_assistant(
         self,
         prompt: str,
+        noa_system_prompt: str | None,
         image_bytes: bytes | None, 
         message_history: List[Message] | None, 
         learned_context: Dict[str, str],

@@ -58,8 +58,9 @@ class GenerateImageService(str, Enum):
 class MultimodalRequest(BaseModel):
     messages: Optional[List[Message]]
     prompt: Optional[str] = ""
-    assistant: Optional[str] = None
-    assistant_model: Optional[str] = None
+    noa_system_prompt: Optional[str] = None
+    assistant: Optional[str] = None         # assistant class: gpt, claude, perplexity, groq
+    assistant_model: Optional[str] = None   # specific model for the assistant class
     search_api: Optional[SearchAPI] = SearchAPI.SERP
     search_engine: Optional[SearchEngine] = SearchEngine.GOOGLE
     max_search_results: Optional[int] = 10

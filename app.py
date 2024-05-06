@@ -57,7 +57,7 @@ class Checker:
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
-def transcribe(client: openai.OpenAI, audio_bytes: bytes) -> str:
+async def transcribe(client: openai.AsyncOpenAI, audio_bytes: bytes) -> str:
     # Create a file-like object for Whisper API to consume
     audio = AudioSegment.from_file(BytesIO(audio_bytes))
     buffer = BytesIO()
@@ -65,7 +65,7 @@ def transcribe(client: openai.OpenAI, audio_bytes: bytes) -> str:
     audio.export(buffer, format="mp4")
 
     # Whisper
-    transcript = client.audio.translations.create(
+    transcript = await client.audio.translations.create(
         model="whisper-1", 
         file=buffer,
     )
@@ -150,10 +150,13 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
         voice_prompt = ""
         if audio:
             audio_bytes = await audio.read()
-            voice_prompt = transcribe(client=request.app.state.openai_client, audio_bytes=audio_bytes)
+            voice_prompt = await transcribe(client=request.app.state.openai_client, audio_bytes=audio_bytes)
 
         # Construct final prompt
-        user_prompt = mm.prompt + " " + voice_prompt
+        if mm.prompt is None or len(mm.prompt) == 0 or mm.prompt.isspace() or mm.prompt == "":
+            user_prompt = voice_prompt
+        else:
+            user_prompt = mm.prompt + " " + voice_prompt
 
         # Image data
         image_bytes = (await image.read()) if image else None
@@ -194,6 +197,7 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
             assistant, assistant_model = get_assistant(app=app, mm=mm)
             assistant_response: AssistantResponse = await assistant.send_to_assistant(
                 prompt=user_prompt,
+                noa_system_prompt=mm.noa_system_prompt,
                 image_bytes=image_bytes,
                 message_history=mm.messages,
                 learned_context={},

@@ -26,6 +26,7 @@ class Assistant(ABC):
     @abstractmethod
     async def send_to_assistant(
         prompt: str,
+        noa_system_prompt: str | None,
         image_bytes: bytes | None, 
         message_history: List[Message] | None, 
         learned_context: Dict[str, str],
