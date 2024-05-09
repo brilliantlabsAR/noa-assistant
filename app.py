@@ -205,7 +205,8 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
                 location_address=address,
                 model=assistant_model,
                 web_search=web_search,
-                vision=vision
+                vision=vision,
+                speculative_vision=mm.speculative_vision
             )
 
             return MultimodalResponse(

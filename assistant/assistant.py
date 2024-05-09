@@ -34,7 +34,8 @@ class Assistant(ABC):
         location_address: str | None,
         model: str | None,
         web_search: WebSearch,
-        vision: Vision
+        vision: Vision,
+        speculative_vision: bool
     ) -> AssistantResponse:
         """
         Sends a message from user to assistant.
@@ -66,6 +67,12 @@ class Assistant(ABC):
             needed.
         vision : Vision
             Vision AI provider, invoked when understanding of what user is looking at is required.
+        speculative_vision : bool
+            Whether to perform speculative vision queries (if supported by assistant). This will run
+            the vision tool in parallel with the initial LLM request in *all* cases, using the user 
+            prompt as the query, but only use the result if the LLM then determines the vision tool
+            should have been used. This reduces latency by the duration of the initial LLM call by
+            giving the vision tool (which is usually slow) a head start.
 
         Returns
         -------
