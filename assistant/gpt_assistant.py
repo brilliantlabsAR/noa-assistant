@@ -62,6 +62,9 @@ PHOTO_TOOL_NAME = "analyze_photo"
 QUERY_PARAM_NAME = "query"
 PHOTO_TOOL_WEB_SEARCH_PARAM_NAME = "google_reverse_image_search"
 PHOTO_TOOL_TRANSLATION_PARAM_NAME = "translate"
+TIMER_TOOL_NAME = "timer"
+TIMER_TOOL_ACTION_PARAM_NAME = "action"
+TIMER_TOOL_TIME_PARAM_NAME = "time_in_seconds"
 
 TOOLS = [
     {
@@ -116,6 +119,27 @@ Use this tool if user refers to something not identifiable from conversation con
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": TIMER_TOOL_NAME,
+            "description": "Set, cancel, or get state of a timer",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    TIMER_TOOL_ACTION_PARAM_NAME: {
+                        "type": "string",
+                        "enum": [ "set", "cancel", "get_state" ]
+                    },
+                    TIMER_TOOL_TIME_PARAM_NAME: {
+                        "type": "number",
+                        "description": "Number of seconds when setting a timer, zero if no time explicitly mentioned or when more than one value mentioned"
+                    }
+                },
+                "required": [ TIMER_TOOL_ACTION_PARAM_NAME ]
+            },
+        },
+    },
 ]
 
 async def handle_tool(
@@ -136,6 +160,7 @@ async def handle_tool(
         SEARCH_TOOL_NAME: web_search.search_web,                # returns WebSearchResult
         PHOTO_TOOL_NAME: handle_photo_tool,                     # returns WebSearchResult | str
         DUMMY_SEARCH_TOOL_NAME: handle_general_knowledge_tool,  # returns str
+        TIMER_TOOL_NAME: handle_timer_tool,                     # returns str
     }
 
     function_name = tool_call.function.name
@@ -203,6 +228,7 @@ def prepare_tool_arguments(
     # Parse arguments and ensure they are all str or bool for now. Drop any that aren't.
     args: Dict[str, Any] = {}
     try:
+        print(tool_call.function.arguments)
         args = json.loads(tool_call.function.arguments)
     except:
         pass
@@ -217,13 +243,17 @@ def prepare_tool_arguments(
         if function_parameters[param_name]["type"] == "boolean" and type(args[param_name]) != bool:
             del args[param_name]
             continue
-        if function_parameters[param_name]["type"] not in [ "string", "boolean" ]:
+        if function_parameters[param_name]["type"] == "number" and (type(args[param_name]) != int and type(args[param_name]) != float):
+            del args[param_name]
+            continue
+        if function_parameters[param_name]["type"] not in [ "string", "boolean", "number" ]:
             # Need to keep this up to date with the tools we define
             raise ValueError(f"Unsupported tool parameter type: {function_parameters[param_name]['type']}")
 
-    # Fill in args required by all tools
-    args["location"] = location if location else "unknown"
-    args[QUERY_PARAM_NAME] = args[QUERY_PARAM_NAME] if QUERY_PARAM_NAME in args else user_message
+    # Fill in args required by multiple tools
+    if tool_call.function.name != TIMER_TOOL_NAME:
+        args["location"] = location if location else "unknown"
+        args[QUERY_PARAM_NAME] = args[QUERY_PARAM_NAME] if QUERY_PARAM_NAME in args else user_message
 
     # Photo tool additional parameters we need to inject
     if tool_call.function.name == PHOTO_TOOL_NAME:
@@ -306,6 +336,26 @@ async def handle_photo_tool(
     )
     
     return f"HERE IS WHAT YOU SEE: {output.response}\nEXTRA INFO FROM WEB: {web_result}"
+
+#TODO: need to pass current timer in so we can list it. Should speak time in reasonable units (e.g.
+# hours, hours+minutes, minutes, seconds))
+#TODO: create a timer capability
+async def handle_timer_tool(
+    action: str,
+    time_in_seconds: float = 0
+) -> str:
+    if action not in [ "set", "cancel", "get_state" ]:
+        return "Error: invalid timer operation. Tell user you do not support this operation and ask them to try again."
+    if action == "set":
+        if time_in_seconds <= 0:
+            return "Error: no duration specified. Tell user that they must specify a duration for the timer."
+        elif time_in_seconds > 8*3600:
+            return "Error: timer duration is too long. Tell user that timers can be a maximum of 8 hours."
+        return f"Tell user: set timer for {time_in_seconds} seconds"
+    elif action == "cancel":
+        return "Tell user: Current timer was cancelled"
+    else:
+        return "Tell user: looking up current timer"
     
 def create_debug_tool_info_object(function_name: str, function_args: Dict[str, Any], tool_time: float, search_result: str | None = None) -> Dict[str, Any]:
     """
