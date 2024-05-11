@@ -24,7 +24,7 @@ from fastapi.encoders import jsonable_encoder
 from models import Capability, TokenUsage, SearchAPI, VisionModel, GenerateImageService, MultimodalRequest, MultimodalResponse, ExtractLearnedContextRequest, ExtractLearnedContextResponse
 from web_search import WebSearch, DataForSEOWebSearch, SerpWebSearch
 from vision import Vision, GPT4Vision, ClaudeVision
-from vision.utils import prcoess_image
+from vision.utils import process_image
 from generate_image import ReplicateGenerateImage
 from assistant import Assistant, AssistantResponse, GPTAssistant, ClaudeAssistant, PerplexityAssistant, extract_learned_context
 
@@ -163,7 +163,7 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
         image_bytes = (await image.read()) if image else None
         # preprocess image
         if image_bytes:
-            image_bytes = prcoess_image(image_bytes)
+            image_bytes = process_image(image_bytes)
         # Location data
         address = mm.address
 

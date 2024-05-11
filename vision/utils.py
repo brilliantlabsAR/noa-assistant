@@ -28,6 +28,7 @@ class BaseFilter(ABC):
     @abstractmethod
     def adjust(self):
         pass
+
 class SmoothFilter(BaseFilter):
     def __init__(self, kernel_size=5):
         self.kernel_size = kernel_size
@@ -39,6 +40,7 @@ class SmoothFilter(BaseFilter):
     
     def adjust(self, kernel_size=None):
         self.kernel_size = kernel_size
+
 class SaturationFilter(BaseFilter):
     def __init__(self, saturation=1.0):
         self.saturation = saturation
@@ -58,6 +60,7 @@ class SaturationFilter(BaseFilter):
     
     def adjust(self, saturation=None, scale=100):
         self.saturation = (saturation / scale)*10 if saturation > 0 else 0.1
+
 class TemperatureFilter(BaseFilter):
     def __init__(self, temperature=0.0):
         self.temperature = temperature
@@ -77,6 +80,7 @@ class TemperatureFilter(BaseFilter):
     
     def adjust(self, temperature=None, scale=100):
         self.temperature = (temperature / scale)*10 if temperature > 0 else 0.1
+
 class GammaCorrectionFilter(BaseFilter):
     def __init__(self, gamma=1.0):
         self.gamma = gamma
@@ -161,6 +165,7 @@ class ContrastFilter(BaseFilter):
     
     def adjust(self, contrast=None, scale=100):
         self.contrast = contrast
+
 class BoostResolutionFilter(BaseFilter):
     def __init__(self, factor=2):
         self.factor = factor
@@ -172,6 +177,7 @@ class BoostResolutionFilter(BaseFilter):
     
     def adjust(self, factor=None, scale=100):
         self.factor = factor
+
 class ApplyBlurFilter(BaseFilter):
     def __init__(self, kernel_size=5):
         self.kernel_size = kernel_size
@@ -195,6 +201,7 @@ class ReduceResolutionFilter(BaseFilter):
     
     def adjust(self, factor=None, scale=100):
         self.factor = factor
+
 class WhiteBalanceFilter(BaseFilter):
     def __init__(self):
         pass
@@ -303,7 +310,7 @@ class ImageProcessor:
                 return cv2.imencode('.jpg', self.filtered_image)[1].tobytes()
         return None
 
-def prcoess_image(bytes: bytes)->bytes:
+def process_image(bytes: bytes)->bytes:
     filters:List[BaseFilter] = [
         # BoostShadowFilter(amount=0.8),
         GammaCorrectionFilter(gamma=1.2),
