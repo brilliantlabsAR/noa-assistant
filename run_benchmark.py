@@ -156,7 +156,7 @@ if __name__ == "__main__":
     parser.add_argument("--token", action="store", help="Noa API token")
     parser.add_argument("--test", metavar="name", help="Run specific test")
     parser.add_argument("--markdown", action="store_true", help="Produce report in markdown file")
-    parser.add_argument("--vision", action="store", help="Vision model to use (gpt-4-vision-preview, claude-3-haiku-20240307, claude-3-sonnet-20240229, claude-3-opus-20240229)", default="claude-3-haiku-20240307")
+    parser.add_argument("--vision", action="store", help="Vision model to use (gpt-4o, gpt-4-vision-preview, claude-3-haiku-20240307, claude-3-sonnet-20240229, claude-3-opus-20240229)", default="gpt-4o")
     parser.add_argument("--address", action="store", default="San Francisco, CA 94115", help="Simulated location")
     options = parser.parse_args()
 

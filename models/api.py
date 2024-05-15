@@ -47,6 +47,7 @@ class SearchAPI(Enum):
     DATAFORSEO = "dataforseo"
 
 class VisionModel(str, Enum):
+    GPT4O = "gpt-4o"
     GPT4Vision = "gpt-4-vision-preview"
     CLAUDE_HAIKU = "claude-3-haiku-20240307"
     CLAUDE_SONNET = "claude-3-sonnet-20240229"

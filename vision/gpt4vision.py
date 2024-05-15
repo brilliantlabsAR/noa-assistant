@@ -38,9 +38,13 @@ class ModelOutput(BaseModel):
 
 
 class GPT4Vision(Vision):
-    def __init__(self, client: openai.AsyncOpenAI, model: str = "gpt-4-vision-preview"):
+    def __init__(self, client: openai.AsyncOpenAI, model: str = "gpt-4o"):
         self._client = client
         self._model = model
+    
+    @property
+    def model(self):
+        return self._model
     
     async def query_image(self, query: str, extra_context: str, image_bytes: bytes | None, token_usage_by_model: Dict[str, TokenUsage]) -> VisionOutput | None:
         messages = [
