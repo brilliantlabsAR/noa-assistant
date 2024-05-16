@@ -6,6 +6,9 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Dict
+
+from models import TokenUsage
 
 
 @dataclass
@@ -28,7 +31,7 @@ class WebSearchResult:
 
 class WebSearch(ABC):
     @abstractmethod
-    async def search_web(self, query: str, use_photo: bool = False, image_bytes: bytes | None = None, location: str | None = None) -> WebSearchResult:
+    async def search_web(self, query: str, token_usage_by_model: Dict[str, TokenUsage], use_photo: bool = False, image_bytes: bytes | None = None, location: str | None = None) -> WebSearchResult:
         pass
 
 

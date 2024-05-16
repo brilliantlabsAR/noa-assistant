@@ -14,6 +14,7 @@ import aiohttp
 from pydantic import BaseModel
 import uule_grabber
 
+from models import TokenUsage
 from .web_search import WebSearch, WebSearchResult
 from .async_serpapi_client import AsyncSerpAPIClient
 
@@ -824,7 +825,7 @@ class SerpWebSearch(WebSearch):
             self._session = aiohttp.ClientSession()
             self._client = AsyncSerpAPIClient(api_key=SERP_API_KEY, session=self._session)
     
-    async def search_web(self, query: str, use_photo: bool = False, image_bytes: bytes | None = None, location: str | None = None) -> WebSearchResult:
+    async def search_web(self, query: str, token_usage_by_model: Dict[str, TokenUsage], use_photo: bool = False, image_bytes: bytes | None = None, location: str | None = None) -> WebSearchResult:
         await self._lazy_init()
         uule = uule_grabber.uule(location)
         image_url = await upload_image_to_cdn(session=self._session, image_bytes=image_bytes) if (use_photo and image_bytes is not None) else None

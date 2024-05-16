@@ -45,6 +45,7 @@ class SearchEngine(str, Enum):
 class SearchAPI(Enum):
     SERP = "serp"
     DATAFORSEO = "dataforseo"
+    PERPLEXITY = "perplexity"
 
 class VisionModel(str, Enum):
     GPT4O = "gpt-4o"

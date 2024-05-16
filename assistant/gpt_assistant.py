@@ -235,6 +235,7 @@ def prepare_tool_arguments(
     # Fill in args required by all tools
     args["location"] = location if location else "unknown"
     args[QUERY_PARAM_NAME] = args[QUERY_PARAM_NAME] if QUERY_PARAM_NAME in args else user_message
+    args["token_usage_by_model"] = token_usage_by_model
 
     # Photo tool additional parameters we need to inject
     if tool_call.function.name == PHOTO_TOOL_NAME:
@@ -243,13 +244,13 @@ def prepare_tool_arguments(
         args["web_search"] = web_search
         args["local_time"] = local_time
         args["learned_context"] = learned_context
-        args["token_usage_by_model"] = token_usage_by_model
         args["capabilities_used"] = capabilities_used
 
     return args
 
 async def handle_general_knowledge_tool(
     query: str,
+    token_usage_by_model: Dict[str, TokenUsage],
     image_bytes: bytes | None = None,
     local_time: str | None = None,
     location: str | None = None,
@@ -313,7 +314,8 @@ async def handle_photo_tool(
         query=output.web_query.strip("\""),
         use_photo=output.reverse_image_search,
         image_bytes=image_bytes,
-        location=location
+        location=location,
+        token_usage_by_model=token_usage_by_model
     )
     
     return f"HERE IS WHAT YOU SEE: {output.response}\nEXTRA INFO FROM WEB: {web_result}"

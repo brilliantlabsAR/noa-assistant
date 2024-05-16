@@ -22,11 +22,11 @@ from fastapi.exceptions import HTTPException
 from fastapi.encoders import jsonable_encoder
 
 from models import Capability, TokenUsage, SearchAPI, VisionModel, GenerateImageService, MultimodalRequest, MultimodalResponse, ExtractLearnedContextRequest, ExtractLearnedContextResponse
-from web_search import WebSearch, DataForSEOWebSearch, SerpWebSearch
+from web_search import WebSearch, DataForSEOWebSearch, SerpWebSearch, PerplexityWebSearch
 from vision import Vision, GPT4Vision, ClaudeVision
 from vision.utils import process_image
 from generate_image import ReplicateGenerateImage
-from assistant import Assistant, AssistantResponse, GPTAssistant, ClaudeAssistant, PerplexityAssistant, extract_learned_context
+from assistant import Assistant, AssistantResponse, GPTAssistant, ClaudeAssistant, extract_learned_context
 
 
 ####################################################################################################
@@ -34,7 +34,6 @@ from assistant import Assistant, AssistantResponse, GPTAssistant, ClaudeAssistan
 ####################################################################################################
 
 EXPERIMENT_AI_PORT = os.environ.get('EXPERIMENT_AI_PORT',8000)
-SEARCH_API = os.environ.get('SEARCH_API','serp')
 PERPLEXITY_API_KEY = os.environ.get("PERPLEXITY_API_KEY", None)
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", None)
 
@@ -97,7 +96,7 @@ def get_assistant(app, mm: MultimodalRequest) -> Tuple[Assistant, str | None]:
     assistant_model = mm.assistant_model
 
     # Default assistant if none selected
-    if mm.assistant is None or (mm.assistant not in [ "gpt", "claude", "groq", "perplexity" ]):
+    if mm.assistant is None or (mm.assistant not in [ "gpt", "claude", "groq" ]):
         return app.state.assistant, None    # None for assistant_model will force assistant to use its own internal default choice
     
     # Return assistant and a valid model for it
@@ -110,9 +109,6 @@ def get_assistant(app, mm: MultimodalRequest) -> Tuple[Assistant, str | None]:
     elif mm.assistant == "groq":
         assistant_model = validate_assistant_model(model=mm.assistant_model, models=[ "llama3-70b-8192", "llama3-8b-8192", "mixtral-8x7b-32768", "gemma-7b-it" ])
         return GPTAssistant(client=app.state.groq_client), assistant_model # Groq uses GPTAssistant
-    elif mm.assistant == "perplexity":
-        assistant_model = "pplx-7b-online"
-        return PerplexityAssistant(api_key=PERPLEXITY_API_KEY), assistant_model
     
     # Should never fall through to here
     return None, ""
@@ -123,6 +119,8 @@ def get_web_search_provider(app, mm: MultimodalRequest) -> WebSearch:
         return SerpWebSearch(save_to_file=options.save, engine=mm.search_engine.value, max_search_results=mm.max_search_results)
     elif mm.search_api == SearchAPI.DATAFORSEO:
         return DataForSEOWebSearch(save_to_file=options.save, max_search_results=mm.max_search_results)
+    elif mm.search_api == SearchAPI.PERPLEXITY:
+        return PerplexityWebSearch(api_key=PERPLEXITY_API_KEY)
 
     # Default provider
     return app.state.web_search
@@ -272,8 +270,8 @@ if __name__ == "__main__":
     parser.add_argument("--query", action="store", help="Perform search query and exit")
     parser.add_argument("--location", action="store", default="San Francisco", help="Set location address used for all queries (e.g., \"San Francisco\")")
     parser.add_argument("--save", action="store", help="Save DataForSEO response object to file")
-    parser.add_argument("--search-api", action="store", default=SEARCH_API, help="Search API to use (serp or dataforseo)")
-    parser.add_argument("--assistant", action="store", default="gpt", help="Assistant to use (gpt, claude, groq, or perplexity)")
+    parser.add_argument("--search-api", action="store", default="serp", help="Search API to use (serp, dataforseo, perplexity)")
+    parser.add_argument("--assistant", action="store", default="gpt", help="Assistant to use (gpt, claude, groq)")
     parser.add_argument("--server", action="store_true", help="Start server")
     parser.add_argument("--image", action="store", help="Image filepath for image query")
     parser.add_argument("--vision", action="store", help="Vision model to use (gpt-4o, gpt-4-vision-preview, claude-3-haiku-20240307, claude-3-sonnet-20240229, claude-3-opus-20240229)", default="gpt-4o")
@@ -290,8 +288,10 @@ if __name__ == "__main__":
         app.state.web_search = SerpWebSearch(save_to_file=options.save, engine="google")
     elif options.search_api == "dataforseo":
         app.state.web_search = DataForSEOWebSearch(save_to_file=options.save)
+    elif options.search_api == "perplexity":
+        app.state.web_search = PerplexityWebSearch(api_key=PERPLEXITY_API_KEY)
     else:
-        raise ValueError("--search-api must be either 'serp' or 'dataforseo")
+        raise ValueError("--search-api must be one of: serp, dataforseo, perplexity")
 
     # Instantiate a default vision provider
     app.state.vision = None
@@ -309,10 +309,8 @@ if __name__ == "__main__":
         app.state.assistant = ClaudeAssistant(client=app.state.anthropic_client)
     elif options.assistant == "groq":
         app.state.assistant = GPTAssistant(client=app.state.groq_client)
-    elif options.assistant == "perplexity":
-        app.state.assistant = PerplexityAssistant(api_key=PERPLEXITY_API_KEY)
     else:
-        raise ValueError("--assistant must be one of: gpt, perplexity")
+        raise ValueError("--assistant must be one of: gpt, claude, groq")
 
     # Load image if one was specified (for performing a test query)
     image_bytes = None
