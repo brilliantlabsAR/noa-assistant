@@ -18,6 +18,7 @@
 #
 
 import asyncio
+import base64
 import json
 import timeit
 from typing import Any, Dict, List
@@ -30,7 +31,8 @@ from groq.types.chat.chat_completion import ChoiceMessageToolCall
 from .assistant import Assistant, AssistantResponse
 from .context import create_context_system_message
 from web_search import WebSearch, WebSearchResult
-from vision import Vision
+from vision import Vision, GPT4Vision
+from vision.utils import detect_media_type
 from models import Role, Message, Capability, TokenUsage, accumulate_token_usage
 
 
@@ -125,6 +127,7 @@ Use this tool if user refers to something not identifiable from conversation con
 ]
 
 async def handle_tool(
+    tools: List[Any],
     tool_call: ChatCompletionMessageToolCall | ChoiceMessageToolCall,
     user_message: str,
     image_bytes: bytes | None,
@@ -151,6 +154,7 @@ async def handle_tool(
         return "Error: you hallucinated a tool that doesn't exist. Tell user you had trouble interpreting the request and ask them to rephrase it."
 
     function_args = prepare_tool_arguments(
+        tools=tools,
         tool_call=tool_call,
         user_message=user_message,
         image_bytes=image_bytes,
@@ -190,6 +194,7 @@ async def handle_tool(
     return tool_output
 
 def prepare_tool_arguments(
+    tools: List[Any],
     tool_call: ChatCompletionMessageToolCall | ChoiceMessageToolCall,
     user_message: str,
     image_bytes: bytes | None,
@@ -203,7 +208,7 @@ def prepare_tool_arguments(
 ) -> Dict[str, Any]:
     # Get function description we passed to GPT. This function should be called after we have
     # validated that a valid tool call was generated.
-    function_description = [ description for description in TOOLS if description["function"]["name"] == tool_call.function.name ][0]
+    function_description = [ description for description in tools if description["function"]["name"] == tool_call.function.name ][0]
     function_parameters = function_description["function"]["parameters"]["properties"]
 
     # Parse arguments and ensure they are all str or bool for now. Drop any that aren't.
@@ -230,6 +235,7 @@ def prepare_tool_arguments(
     # Fill in args required by all tools
     args["location"] = location if location else "unknown"
     args[QUERY_PARAM_NAME] = args[QUERY_PARAM_NAME] if QUERY_PARAM_NAME in args else user_message
+    args["token_usage_by_model"] = token_usage_by_model
 
     # Photo tool additional parameters we need to inject
     if tool_call.function.name == PHOTO_TOOL_NAME:
@@ -238,13 +244,13 @@ def prepare_tool_arguments(
         args["web_search"] = web_search
         args["local_time"] = local_time
         args["learned_context"] = learned_context
-        args["token_usage_by_model"] = token_usage_by_model
         args["capabilities_used"] = capabilities_used
 
     return args
 
 async def handle_general_knowledge_tool(
     query: str,
+    token_usage_by_model: Dict[str, TokenUsage],
     image_bytes: bytes | None = None,
     local_time: str | None = None,
     location: str | None = None,
@@ -308,7 +314,8 @@ async def handle_photo_tool(
         query=output.web_query.strip("\""),
         use_photo=output.reverse_image_search,
         image_bytes=image_bytes,
-        location=location
+        location=location,
+        token_usage_by_model=token_usage_by_model
     )
     
     return f"HERE IS WHAT YOU SEE: {output.response}\nEXTRA INFO FROM WEB: {web_result}"
@@ -374,11 +381,23 @@ class GPTAssistant(Assistant):
         # Default model (differs for OpenAI and Groq)
         if model is None:
             if type(self._client) == openai.AsyncOpenAI:
-                model = "gpt-3.5-turbo-1106"
+                model = "gpt-4o"
             elif type(self._client) == groq.AsyncGroq:
                 model = "llama3-70b-8192"
             else:
                 raise TypeError("client must be AsyncOpenAI or AsyncGroq")
+        
+        # Get copy of tool description
+        tools = TOOLS.copy()
+
+        # GPT-4o is a special case: if vision tool is also GPT-4o, then we remove it as a tool and
+        # always submit images with queries.
+        gpt4o_end_to_end = False
+        if model == "gpt-4o" and isinstance(vision, GPT4Vision) and vision.model == "gpt-4o":
+            speculative_vision = False  # doesn't make sense anymore
+            tools = [ tool for tool in tools if tool["function"]["name"] != PHOTO_TOOL_NAME ]
+            print("End-to-end GPT-4o assistant activated")
+            gpt4o_end_to_end = True
 
         # Keep track of time taken
         timings: Dict[str, str] = {}
@@ -403,6 +422,19 @@ class GPTAssistant(Assistant):
                 message_history.insert(0, system_message)
         message_history.append(user_message)
         message_history = self._prune_history(message_history=message_history)
+
+        # Patch up user message to include image if we are in end-to-end gpt-4o mode
+        if gpt4o_end_to_end and image_bytes is not None:
+            image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+            media_type = detect_media_type(image_bytes=image_bytes)
+            user_message = {
+                "role": "user",
+                "content": [
+                    { "type": "text", "text": prompt },
+                    { "type": "image_url", "image_url": { "url": f"data:{media_type};base64,{image_base64}" } }
+                ]
+            }
+            message_history[-1] = user_message
 
         # Inject context into our copy by appending it to system message. Unclear whether multiple
         # system messages are confusing to the assistant or not but cursory testing shows this
@@ -439,7 +471,7 @@ class GPTAssistant(Assistant):
             self._client.chat.completions.create(
                 model=model,
                 messages=message_history,
-                tools=TOOLS,
+                tools=tools,
                 tool_choice="auto"
             )
         )
@@ -491,6 +523,7 @@ class GPTAssistant(Assistant):
                 else:
                     tool_handlers.append(
                         handle_tool(
+                            tools=tools,
                             tool_call=tool_call,
                             user_message=prompt,
                             image_bytes=image_bytes,
