@@ -218,7 +218,7 @@ if __name__ == "__main__":
                                     "messages": history,
                                     "address": options.address,
                                     "local_time": datetime.now().strftime("%A, %B %d, %Y, %I:%M %p"),
-                                    "search_api": "serp",
+                                    "search_api": "perplexity",
                                     "config": { "engine": "google_lens" },
                                     "experiment": "1",
                                     "vision": options.vision
@@ -231,7 +231,7 @@ if __name__ == "__main__":
                         "messages": json.dumps(history),
                         "address": options.address,
                         "local_time": datetime.now().strftime("%A, %B %d, %Y, %I:%M %p"),
-                        "search_api": "serp",
+                        "search_api": "perplexity",
                         "config": json.dumps({ "engine": "google_lens" }),
                         "experiment": "1",  # this activates the passthrough to the Python ai-experiments code
                         "vision": options.vision

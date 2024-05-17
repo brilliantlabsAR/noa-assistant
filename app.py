@@ -270,7 +270,7 @@ if __name__ == "__main__":
     parser.add_argument("--query", action="store", help="Perform search query and exit")
     parser.add_argument("--location", action="store", default="San Francisco", help="Set location address used for all queries (e.g., \"San Francisco\")")
     parser.add_argument("--save", action="store", help="Save DataForSEO response object to file")
-    parser.add_argument("--search-api", action="store", default="serp", help="Search API to use (serp, dataforseo, perplexity)")
+    parser.add_argument("--search-api", action="store", default="perplexity", help="Search API to use (perplexity, serp, dataforseo)")
     parser.add_argument("--assistant", action="store", default="gpt", help="Assistant to use (gpt, claude, groq)")
     parser.add_argument("--server", action="store_true", help="Start server")
     parser.add_argument("--image", action="store", help="Image filepath for image query")

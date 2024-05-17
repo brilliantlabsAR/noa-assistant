@@ -42,9 +42,10 @@ class PerplexityResponse(BaseModel):
             return "No results"
 
 class PerplexityWebSearch(WebSearch):
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, model: str = "pplx-7b-online"):
         super().__init__()
         self._api_key = api_key
+        self._model = model
         self._session = None
 
     def __del__(self):
@@ -58,7 +59,6 @@ class PerplexityWebSearch(WebSearch):
     
     async def search_web(self, query: str, token_usage_by_model: Dict[str, TokenUsage], use_photo: bool = False, image_bytes: bytes | None = None, location: str | None = None) -> WebSearchResult:
         await self._lazy_init()
-        model = "pplx-7b-online"
 
         messages = [
             Message(role=Role.SYSTEM, content=self._system_message(location=location)),
@@ -67,7 +67,7 @@ class PerplexityWebSearch(WebSearch):
 
         url = "https://api.perplexity.ai/chat/completions"
         payload = {
-            "model": model,
+            "model": self._model,
             "messages": [ message.model_dump() for message in messages ]
         }
         headers = {
@@ -83,7 +83,7 @@ class PerplexityWebSearch(WebSearch):
         perplexity_data = PerplexityResponse.model_validate_json(json_text)
         accumulate_token_usage(
             token_usage_by_model=token_usage_by_model,
-            model=model,
+            model=self._model,
             input_tokens=perplexity_data.usage.prompt_tokens,
             output_tokens=perplexity_data.usage.completion_tokens,
             total_tokens=perplexity_data.usage.total_tokens
