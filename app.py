@@ -172,7 +172,7 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
         if mm.generate_image != 0:
             if mm.generate_image_service == GenerateImageService.REPLICATE:
                 generate_image = ReplicateGenerateImage()
-                image_url = generate_image.generate_image(
+                image_url = await generate_image.generate_image(
                     query=user_prompt,
                     use_image=True,
                     image_bytes=image_bytes
