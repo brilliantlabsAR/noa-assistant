@@ -42,7 +42,7 @@ class PerplexityResponse(BaseModel):
             return "No results"
 
 class PerplexityWebSearch(WebSearch):
-    def __init__(self, api_key: str, model: str = "pplx-7b-online"):
+    def __init__(self, api_key: str, model: str = "llama-3-sonar-small-32k-online"):
         super().__init__()
         self._api_key = api_key
         self._model = model

@@ -34,7 +34,7 @@ from web_search import WebSearch, WebSearchResult
 from vision import Vision, GPT4Vision
 from vision.utils import detect_media_type
 from models import Role, Message, Capability, TokenUsage, accumulate_token_usage
-
+from generate_image.replicate import ReplicateGenerateImage
 
 ####################################################################################################
 # Prompts
@@ -55,8 +55,6 @@ should never talk about the image or photo.
 
 Make your responses precise. Respond without any preamble when giving translations, just translate
 directly.
-
-Sometimes Answer in witty, sarcastic style and Make user laugh.
 """
 
 
@@ -65,8 +63,10 @@ Sometimes Answer in witty, sarcastic style and Make user laugh.
 ####################################################################################################
 
 DUMMY_SEARCH_TOOL_NAME = "general_knowledge_search"
+IMAGE_GENERATION_TOOL_NAME = "generate_image"
 SEARCH_TOOL_NAME = "web_search"
 PHOTO_TOOL_NAME = "analyze_photo"
+IMAGE_GENERATION_PARAM_NAME = "description"
 QUERY_PARAM_NAME = "query"
 PHOTO_TOOL_WEB_SEARCH_PARAM_NAME = "google_reverse_image_search"
 PHOTO_TOOL_TRANSLATION_PARAM_NAME = "translate"
@@ -124,6 +124,24 @@ Use this tool if user refers to something not identifiable from conversation con
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": IMAGE_GENERATION_TOOL_NAME,
+            "description": """Generates an image based on a description or prompt.""",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    IMAGE_GENERATION_PARAM_NAME: {
+                        "type": "string",
+                        "description": "description of the image to generate"
+                    },
+                },
+                "required": [ IMAGE_GENERATION_PARAM_NAME ]
+            },
+        },
+    }
+    
 ]
 
 async def handle_tool(
@@ -145,6 +163,7 @@ async def handle_tool(
         SEARCH_TOOL_NAME: web_search.search_web,                # returns WebSearchResult
         PHOTO_TOOL_NAME: handle_photo_tool,                     # returns WebSearchResult | str
         DUMMY_SEARCH_TOOL_NAME: handle_general_knowledge_tool,  # returns str
+        IMAGE_GENERATION_TOOL_NAME: handle_image_generation_tool # returns str
     }
 
     function_name = tool_call.function.name
@@ -245,6 +264,8 @@ def prepare_tool_arguments(
         args["local_time"] = local_time
         args["learned_context"] = learned_context
         args["capabilities_used"] = capabilities_used
+    if tool_call.function.name == IMAGE_GENERATION_TOOL_NAME:
+        args["image_bytes"] = image_bytes
 
     return args
 
@@ -318,8 +339,25 @@ async def handle_photo_tool(
         token_usage_by_model=token_usage_by_model
     )
     
-    return f"HERE IS WHAT YOU SEE: {output.response}\nEXTRA INFO FROM WEB: {web_result}"
-    
+    return f"HERE IS WHAT YOU SEE: {output.response}\nEXTRA INFO FROM WEB: {web_result}"  
+
+async def handle_image_generation_tool(
+    query: str,
+    description: str,
+    token_usage_by_model: Dict[str, TokenUsage],
+    image_bytes: bytes | None = None,
+    local_time: str | None = None,
+    location: str | None = None,
+    learned_context: Dict[str,str] | None = None,
+) -> str:
+    """
+    Generates an image based on a description or prompt.
+    """
+    # Generate image
+    image_generator = ReplicateGenerateImage()
+    image = await image_generator.generate_image(query=description, use_image=True, image_bytes=image_bytes)
+    return image
+
 def create_debug_tool_info_object(function_name: str, function_args: Dict[str, Any], tool_time: float, search_result: str | None = None) -> Dict[str, Any]:
     """
     Produces an object of arbitrary keys and values intended to serve as a debug description of tool
@@ -502,6 +540,10 @@ class GPTAssistant(Assistant):
         tools_used = []
         tools_used.append({ "learned_context": learned_context })   # log context here for now
         if first_response_message.tool_calls:
+            # if image generation tool then kill speculative vision task
+            if first_response_message.tool_calls[0].function.name == IMAGE_GENERATION_TOOL_NAME:
+                if speculative_vision_task is not None:
+                    speculative_vision_task.cancel()
             # Append initial response to history, which may include tool use
             message_history.append(first_response_message)
 
@@ -549,6 +591,14 @@ class GPTAssistant(Assistant):
 
             # Append all the responses for GPT to continue
             for i in range(len(tool_outputs)):
+                # if image generation tool then return response
+                if first_response_message.tool_calls[i].function.name == IMAGE_GENERATION_TOOL_NAME:
+                    returned_response.response = "Here is the image you requested"
+                    returned_response.capabilities_used.append(Capability.IMAGE_GENERATION)
+                    returned_response.debug_tools = json.dumps(tools_used)
+                    returned_response.image = tool_outputs[i]
+                    return returned_response
+                
                 message_history.append(
                     {
                         "tool_call_id": first_response_message.tool_calls[i].id,
@@ -592,6 +642,7 @@ class GPTAssistant(Assistant):
         # Return final response
         tools_used.append(timings)
         returned_response.debug_tools = json.dumps(tools_used)
+        returned_response.image = ""
         return returned_response
 
     @staticmethod
