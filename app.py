@@ -213,7 +213,7 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
             return MultimodalResponse(
                 user_prompt=user_prompt,
                 response=assistant_response.response,
-                image="",
+                image=assistant_response.image,
                 token_usage_by_model=assistant_response.token_usage_by_model,
                 capabilities_used=assistant_response.capabilities_used,
                 total_tokens=0,

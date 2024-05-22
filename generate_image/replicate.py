@@ -1,5 +1,5 @@
 from .generate_image import GenerateImage
-import replicate
+from replicate import async_run as replicate
 
 import requests
 from io import BytesIO
@@ -14,7 +14,7 @@ class ReplicateGenerateImage(GenerateImage):
         super().__init__()
         self._model = model
     
-    def generate_image(
+    async def generate_image(
         self,
         query: str,
         use_image: bool,
@@ -24,7 +24,7 @@ class ReplicateGenerateImage(GenerateImage):
             if not image_bytes:
                 raise ValueError('Image bytes must be provided')
             input_base64_img = base64.b64encode(image_bytes).decode('utf-8')
-            response = replicate.run(
+            response = await replicate(
                 self._model,
                 input={
                     "width": 512,
