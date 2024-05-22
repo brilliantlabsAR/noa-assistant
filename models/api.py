@@ -63,7 +63,7 @@ class MultimodalRequest(BaseModel):
     noa_system_prompt: Optional[str] = None
     assistant: Optional[str] = None         # assistant class: gpt, claude, perplexity, groq
     assistant_model: Optional[str] = None   # specific model for the assistant class
-    search_api: Optional[SearchAPI] = SearchAPI.SERP
+    search_api: Optional[SearchAPI] = None
     search_engine: Optional[SearchEngine] = SearchEngine.GOOGLE
     max_search_results: Optional[int] = 10
     local_time: Optional[str] = None
