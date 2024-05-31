@@ -431,7 +431,10 @@ class GPTAssistant(Assistant):
         # GPT-4o is a special case: if vision tool is also GPT-4o, then we remove it as a tool and
         # always submit images with queries.
         gpt4o_end_to_end = False
-        # disbaled for now
+        # End-to-end mode DISABLED for now to improve latency: in end-to-end mode, every image is
+        # processed, which is slower for queries that don't require image analysis. So we actually
+        # want to use the vision tool to device when to do that. Assumption is that most questions
+        # are not vision-related.
         if  False and model == "gpt-4o" and isinstance(vision, GPT4Vision) and vision.model == "gpt-4o":
             speculative_vision = False  # doesn't make sense anymore
             tools = [ tool for tool in tools if tool["function"]["name"] != PHOTO_TOOL_NAME ]
