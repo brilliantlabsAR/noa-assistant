@@ -106,6 +106,7 @@ Use this tool if user refers to something not identifiable from conversation con
 async def handle_tool(
     tool_call: ToolUseBlock,
     user_message: str,
+    message_history: List[Message] | None,
     image_bytes: bytes | None,
     location: str | None,
     local_time: str | None,
@@ -132,6 +133,7 @@ async def handle_tool(
     function_args = prepare_tool_arguments(
         tool_call=tool_call,
         user_message=user_message,
+        message_history=message_history,
         image_bytes=image_bytes,
         location=location,
         local_time=local_time,
@@ -171,6 +173,7 @@ async def handle_tool(
 def prepare_tool_arguments(
     tool_call: ToolUseBlock,
     user_message: str,
+    message_history: List[Message] | None,
     image_bytes: bytes | None,
     location: str | None,
     local_time: str | None,
@@ -205,6 +208,7 @@ def prepare_tool_arguments(
     # Fill in args required by all tools
     args["location"] = location if location else "unknown"
     args[QUERY_PARAM_NAME] = args[QUERY_PARAM_NAME] if QUERY_PARAM_NAME in args else user_message
+    args["message_history"] = message_history
     args["token_usage_by_model"] = token_usage_by_model
 
     # Photo tool additional parameters we need to inject
@@ -215,11 +219,12 @@ def prepare_tool_arguments(
         args["local_time"] = local_time
         args["learned_context"] = learned_context
         args["capabilities_used"] = capabilities_used
-
+    
     return args
 
 async def handle_general_knowledge_tool(
     query: str,
+    message_history: List[Message] | None,
     token_usage_by_model: Dict[str, TokenUsage],
     image_bytes: bytes | None = None,
     local_time: str | None = None,
@@ -234,6 +239,7 @@ async def handle_general_knowledge_tool(
 
 async def handle_photo_tool(
     query: str,
+    message_history: List[Message] | None,
     vision: Vision,
     web_search: WebSearch,
     token_usage_by_model: Dict[str, TokenUsage],
@@ -276,6 +282,7 @@ async def handle_photo_tool(
     capabilities_used.append(Capability.REVERSE_IMAGE_SEARCH if output.reverse_image_search else Capability.WEB_SEARCH)
     web_result = await web_search.search_web(
         query=output.web_query.strip("\""),
+        message_history=message_history,
         use_photo=output.reverse_image_search,
         image_bytes=image_bytes,
         location=location,
@@ -292,6 +299,7 @@ def create_debug_tool_info_object(function_name: str, function_args: Dict[str, A
     function_args = function_args.copy()
 
     # Sanitize bytes, which are often too long to print
+    del function_args["message_history"]
     for arg_name, value in function_args.items():
         if isinstance(value, bytes):
             function_args[arg_name] = "<bytes>"
@@ -348,6 +356,7 @@ class ClaudeAssistant(Assistant):
 
         # Make copy of message history so we can modify it in-flight during tool use
         message_history = message_history.copy() if message_history else []
+        full_message_history = message_history.copy() if message_history else []
 
         # Claude does not have a system role. Rather, a top-level system parameter must be supplied.
         # However, our API uses the OpenAI format. Therefore, we search for an existing system
@@ -407,6 +416,7 @@ class ClaudeAssistant(Assistant):
                     handle_tool(
                         tool_call=tool_call,
                         user_message=prompt,
+                        message_history=full_message_history,
                         image_bytes=image_bytes,
                         location=location_address,
                         local_time=local_time,
@@ -467,6 +477,9 @@ class ClaudeAssistant(Assistant):
         # Return final response
         tools_used.append(timings)
         returned_response.debug_tools = json.dumps(tools_used)
+
+        print("**** GOT HERE")
+        print(returned_response)
         return returned_response
 
     @staticmethod

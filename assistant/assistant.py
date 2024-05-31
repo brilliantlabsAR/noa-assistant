@@ -21,7 +21,7 @@ class AssistantResponse:
     capabilities_used: List[Capability]
     response: str
     debug_tools: str    # debugging information about tools used (no particular format guaranteed)
-    image: str | None = None
+    image: str = ""
 
 class Assistant(ABC):
     @abstractmethod
