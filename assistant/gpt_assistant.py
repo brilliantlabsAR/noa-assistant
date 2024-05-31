@@ -26,7 +26,7 @@ from typing import Any, Dict, List
 import openai
 from openai.types.chat import ChatCompletionMessageToolCall
 import groq
-from groq.types.chat.chat_completion import ChoiceMessageToolCall
+# from groq.types.chat.chat_completion_message_tool_call import ChatCompletionMessageToolCall
 
 from .assistant import Assistant, AssistantResponse
 from .context import create_context_system_message
@@ -146,7 +146,7 @@ Use this tool if user refers to something not identifiable from conversation con
 
 async def handle_tool(
     tools: List[Any],
-    tool_call: ChatCompletionMessageToolCall | ChoiceMessageToolCall,
+    tool_call: ChatCompletionMessageToolCall,
     user_message: str,
     image_bytes: bytes | None,
     location: str | None,
@@ -214,7 +214,7 @@ async def handle_tool(
 
 def prepare_tool_arguments(
     tools: List[Any],
-    tool_call: ChatCompletionMessageToolCall | ChoiceMessageToolCall,
+    tool_call: ChatCompletionMessageToolCall,
     user_message: str,
     image_bytes: bytes | None,
     location: str | None,
@@ -431,7 +431,8 @@ class GPTAssistant(Assistant):
         # GPT-4o is a special case: if vision tool is also GPT-4o, then we remove it as a tool and
         # always submit images with queries.
         gpt4o_end_to_end = False
-        if model == "gpt-4o" and isinstance(vision, GPT4Vision) and vision.model == "gpt-4o":
+        # disbaled for now
+        if  False and model == "gpt-4o" and isinstance(vision, GPT4Vision) and vision.model == "gpt-4o":
             speculative_vision = False  # doesn't make sense anymore
             tools = [ tool for tool in tools if tool["function"]["name"] != PHOTO_TOOL_NAME ]
             print("End-to-end GPT-4o assistant activated")
@@ -504,6 +505,15 @@ class GPTAssistant(Assistant):
             )
         ) if speculative_vision else None
 
+        speculative_search_task = asyncio.create_task(
+            web_search.search_web(
+                query=prompt,
+                token_usage_by_model=returned_response.token_usage_by_model,
+                image_bytes=image_bytes,
+                location=location_address
+            )
+        ) 
+
         # Initial GPT call, which may request tool use
         initial_llm_task = asyncio.create_task(
             self._client.chat.completions.create(
@@ -518,6 +528,8 @@ class GPTAssistant(Assistant):
         initial_tasks = [ initial_llm_task ]
         if speculative_vision_task is not None:
             initial_tasks.append(speculative_vision_task)
+        if speculative_search_task is not None:
+            initial_tasks.append(speculative_search_task)
         completed_tasks, pending_tasks = await asyncio.wait(initial_tasks, return_when=asyncio.FIRST_COMPLETED)
         first_response = await initial_llm_task
         first_response_message = first_response.choices[0].message
@@ -540,10 +552,11 @@ class GPTAssistant(Assistant):
         tools_used = []
         tools_used.append({ "learned_context": learned_context })   # log context here for now
         if first_response_message.tool_calls:
-            # if image generation tool then kill speculative vision task
+            # if image generation tool then kill speculative task
             if first_response_message.tool_calls[0].function.name == IMAGE_GENERATION_TOOL_NAME:
                 if speculative_vision_task is not None:
                     speculative_vision_task.cancel()
+                    speculative_search_task.cancel()
             # Append initial response to history, which may include tool use
             message_history.append(first_response_message)
 
@@ -557,6 +570,17 @@ class GPTAssistant(Assistant):
                     tools_used.append(
                         create_debug_tool_info_object(
                             function_name=PHOTO_TOOL_NAME,
+                            function_args={},
+                            tool_time=-1,
+                            search_result=None
+                        )
+                    )
+                elif tool_call.function.name == SEARCH_TOOL_NAME and speculative_search_task is not None:
+                    tool_handlers.append(speculative_search_task)
+                    returned_response.capabilities_used.append(Capability.WEB_SEARCH)
+                    tools_used.append(
+                        create_debug_tool_info_object(
+                            function_name=SEARCH_TOOL_NAME,
                             function_args={},
                             tool_time=-1,
                             search_result=None
@@ -630,6 +654,7 @@ class GPTAssistant(Assistant):
             # No tools, cancel speculative vision task
             if speculative_vision_task is not None:
                 speculative_vision_task.cancel()
+                speculative_search_task.cancel()
 
         # If no tools were used, only assistant capability recorded
         if len(returned_response.capabilities_used) == 0:

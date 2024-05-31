@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 
 import aiohttp
 from pydantic import BaseModel
-
+import json
 from web_search import WebSearch, WebSearchResult
 from models import Role, Message, TokenUsage, accumulate_token_usage
 
@@ -47,6 +47,7 @@ class PerplexityWebSearch(WebSearch):
         self._api_key = api_key
         self._model = model
         self._session = None
+        self._stream = True
 
     def __del__(self):
         if self._session:
@@ -68,19 +69,26 @@ class PerplexityWebSearch(WebSearch):
         url = "https://api.perplexity.ai/chat/completions"
         payload = {
             "model": self._model,
-            "messages": [ message.model_dump() for message in messages ]
+            "messages": [ message.model_dump() for message in messages ],
+            "stream": self._stream,
         }
         headers = {
             "accept": "application/json",
             "content-type": "application/json",
             "authorization": f"Bearer {self._api_key}"
         }
-        json_text = await self._post(url=url, json=payload, headers=headers)
+        json_text = await self._post(url=url, payload=payload, headers=headers)
         if json_text is None:
             return WebSearchResult(summary="No results", search_provider_metadata="")
 
         # Return results
-        perplexity_data = PerplexityResponse.model_validate_json(json_text)
+        # print(json_text)
+        try:
+            perplexity_data = PerplexityResponse.model_validate_json(json_text)
+        except Exception as e:
+            print(json_text)
+            print(f"Failed to parse Perplexity response: {e}")
+            return WebSearchResult(summary="No results", search_provider_metadata="")
         accumulate_token_usage(
             token_usage_by_model=token_usage_by_model,
             model=self._model,
@@ -91,11 +99,16 @@ class PerplexityWebSearch(WebSearch):
         search_result = perplexity_data.choices[0].message.content if len(perplexity_data.choices) > 0 else "No results"
         return WebSearchResult(summary=search_result, search_provider_metadata="")
     
-    async def _post(self, url: str, json: Dict[str, Any], headers: Dict[str, str]) -> str | None:
-        async with self._session.post(url=url, json=json, headers=headers) as response:
+    async def _post(self, url: str, payload: Dict[str, Any], headers: Dict[str, str]) -> str | None:
+        async with self._session.post(url=url, json=payload, headers=headers) as response:
             if response.status != 200:
                 print(f"Failed to get response from Perplexity: {await response.text()}")
                 return None
+            if self._stream:
+                return_response = ""
+                async for line in response.content.iter_any():
+                    return_response = line.decode("utf-8").split("data: ")[1].strip()
+                return return_response
             return await response.text()
 
     @staticmethod
