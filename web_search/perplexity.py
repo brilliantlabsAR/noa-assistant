@@ -8,7 +8,6 @@ from typing import Any, Dict, List
 
 import aiohttp
 from pydantic import BaseModel
-import json
 from web_search import WebSearch, WebSearchResult
 from models import Role, Message, TokenUsage, accumulate_token_usage
 
