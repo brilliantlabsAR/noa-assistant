@@ -552,11 +552,9 @@ class GPTAssistant(Assistant):
         tools_used = []
         tools_used.append({ "learned_context": learned_context })   # log context here for now
         if first_response_message.tool_calls:
-            # if image generation tool then kill speculative task
+            # If image generation tool then kill speculative tasks
             if first_response_message.tool_calls[0].function.name == IMAGE_GENERATION_TOOL_NAME:
-                if speculative_vision_task is not None:
-                    speculative_vision_task.cancel()
-                    speculative_search_task.cancel()
+                self._cancel_tasks([ speculative_vision_task, speculative_search_task ])
             # Append initial response to history, which may include tool use
             message_history.append(first_response_message)
 
@@ -615,7 +613,7 @@ class GPTAssistant(Assistant):
 
             # Append all the responses for GPT to continue
             for i in range(len(tool_outputs)):
-                # if image generation tool then return response
+                # If image generation tool then return response
                 if first_response_message.tool_calls[i].function.name == IMAGE_GENERATION_TOOL_NAME:
                     returned_response.response = "Here is the image you requested"
                     returned_response.capabilities_used.append(Capability.IMAGE_GENERATION)
@@ -651,10 +649,8 @@ class GPTAssistant(Assistant):
             )
             returned_response.response = second_response.choices[0].message.content
         else:
-            # No tools, cancel speculative vision task
-            if speculative_vision_task is not None:
-                speculative_vision_task.cancel()
-                speculative_search_task.cancel()
+            # No tools, cancel speculative tasks
+            self._cancel_tasks([ speculative_vision_task, speculative_search_task ])
 
         # If no tools were used, only assistant capability recorded
         if len(returned_response.capabilities_used) == 0:
@@ -669,6 +665,12 @@ class GPTAssistant(Assistant):
         returned_response.timings = json.dumps(timings)
         returned_response.image = ""
         return returned_response
+    
+    @staticmethod
+    def _cancel_tasks(tasks: list):
+        for task in tasks:
+            if task is not None:
+                task.cancel()
 
     @staticmethod
     def _prune_history(message_history: List[Message]) -> List[Message]:
