@@ -81,7 +81,13 @@ class PerplexityWebSearch(WebSearch):
             return WebSearchResult(summary="No results", search_provider_metadata="")
 
         # Return results
-        perplexity_data = PerplexityResponse.model_validate_json(json_text)
+        # print(json_text)
+        try:
+            perplexity_data = PerplexityResponse.model_validate_json(json_text)
+        except Exception as e:
+            print(json_text)
+            print(f"Failed to parse Perplexity response: {e}")
+            return WebSearchResult(summary="No results", search_provider_metadata="")
         accumulate_token_usage(
             token_usage_by_model=token_usage_by_model,
             model=self._model,
