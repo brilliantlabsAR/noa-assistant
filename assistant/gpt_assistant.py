@@ -68,8 +68,6 @@ SEARCH_TOOL_NAME = "web_search"
 PHOTO_TOOL_NAME = "analyze_photo"
 IMAGE_GENERATION_PARAM_NAME = "description"
 QUERY_PARAM_NAME = "query"
-PHOTO_TOOL_WEB_SEARCH_PARAM_NAME = "google_reverse_image_search"
-PHOTO_TOOL_TRANSLATION_PARAM_NAME = "translate"
 
 TOOLS = [
     {
@@ -148,6 +146,7 @@ async def handle_tool(
     tools: List[Any],
     tool_call: ChatCompletionMessageToolCall,
     user_message: str,
+    message_history: List[Message] | None,
     image_bytes: bytes | None,
     location: str | None,
     local_time: str | None,
@@ -176,6 +175,7 @@ async def handle_tool(
         tools=tools,
         tool_call=tool_call,
         user_message=user_message,
+        message_history=message_history,
         image_bytes=image_bytes,
         location=location,
         local_time=local_time,
@@ -216,6 +216,7 @@ def prepare_tool_arguments(
     tools: List[Any],
     tool_call: ChatCompletionMessageToolCall,
     user_message: str,
+    message_history: List[Message] | None,
     image_bytes: bytes | None,
     location: str | None,
     local_time: str | None,
@@ -254,6 +255,7 @@ def prepare_tool_arguments(
     # Fill in args required by all tools
     args["location"] = location if location else "unknown"
     args[QUERY_PARAM_NAME] = args[QUERY_PARAM_NAME] if QUERY_PARAM_NAME in args else user_message
+    args["message_history"] = message_history
     args["token_usage_by_model"] = token_usage_by_model
 
     # Photo tool additional parameters we need to inject
@@ -271,6 +273,7 @@ def prepare_tool_arguments(
 
 async def handle_general_knowledge_tool(
     query: str,
+    message_history: List[Message] | None,
     token_usage_by_model: Dict[str, TokenUsage],
     image_bytes: bytes | None = None,
     local_time: str | None = None,
@@ -291,6 +294,7 @@ async def handle_general_knowledge_tool(
 
 async def handle_photo_tool(
     query: str,
+    message_history: List[Message] | None,
     vision: Vision,
     web_search: WebSearch,
     token_usage_by_model: Dict[str, TokenUsage],
@@ -333,6 +337,7 @@ async def handle_photo_tool(
     capabilities_used.append(Capability.REVERSE_IMAGE_SEARCH if output.reverse_image_search else Capability.WEB_SEARCH)
     web_result = await web_search.search_web(
         query=output.web_query.strip("\""),
+        message_history=message_history,
         use_photo=output.reverse_image_search,
         image_bytes=image_bytes,
         location=location,
@@ -343,6 +348,7 @@ async def handle_photo_tool(
 
 async def handle_image_generation_tool(
     query: str,
+    message_history: List[Message] | None,
     description: str,
     token_usage_by_model: Dict[str, TokenUsage],
     image_bytes: bytes | None = None,
@@ -449,6 +455,7 @@ class GPTAssistant(Assistant):
 
         # Make copy of message history so we can modify it in-flight during tool use
         message_history = message_history.copy() if message_history else None
+        full_message_history = message_history.copy() if message_history else None
 
         # Add user message to message history or create a new one if necessary
         user_message = Message(role=Role.USER, content=prompt)
@@ -495,6 +502,7 @@ class GPTAssistant(Assistant):
         speculative_vision_task = asyncio.create_task(
             handle_photo_tool(
                 query=prompt,
+                message_history=full_message_history,
                 vision=vision,
                 web_search=web_search,
                 token_usage_by_model=returned_response.token_usage_by_model,
@@ -511,6 +519,7 @@ class GPTAssistant(Assistant):
         speculative_search_task = asyncio.create_task(
             web_search.search_web(
                 query=prompt,
+                message_history=full_message_history,
                 token_usage_by_model=returned_response.token_usage_by_model,
                 image_bytes=image_bytes,
                 location=location_address
@@ -593,6 +602,7 @@ class GPTAssistant(Assistant):
                             tools=tools,
                             tool_call=tool_call,
                             user_message=prompt,
+                            message_history=full_message_history,   # full history because tools may have their own requirements on history length
                             image_bytes=image_bytes,
                             location=location_address,
                             local_time=local_time,
