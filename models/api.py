@@ -84,6 +84,7 @@ class MultimodalResponse(BaseModel):
     total_tokens: int
     input_tokens: int
     output_tokens: int
+    timings: str
     debug_tools: str
 
 class ExtractLearnedContextRequest(BaseModel):

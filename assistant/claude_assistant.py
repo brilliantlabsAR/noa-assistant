@@ -344,7 +344,7 @@ class ClaudeAssistant(Assistant):
         timings: Dict[str, str] = {}
 
         # Prepare response datastructure
-        returned_response = AssistantResponse(token_usage_by_model={}, capabilities_used=[], response="", debug_tools="")
+        returned_response = AssistantResponse(token_usage_by_model={}, capabilities_used=[], response="", debug_tools="", timings="")
 
         # Make copy of message history so we can modify it in-flight during tool use
         message_history = message_history.copy() if message_history else []
@@ -465,8 +465,8 @@ class ClaudeAssistant(Assistant):
             returned_response.capabilities_used.append(Capability.ASSISTANT_KNOWLEDGE)
         
         # Return final response
-        tools_used.append(timings)
         returned_response.debug_tools = json.dumps(tools_used)
+        returned_response.timings = timings
         return returned_response
 
     @staticmethod

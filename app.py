@@ -186,6 +186,7 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
                     total_tokens=0,
                     input_tokens=0,
                     output_tokens=0,
+                    timings="",
                     debug_tools=""
                 )
 
@@ -219,6 +220,7 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
                 total_tokens=0,
                 input_tokens=0,
                 output_tokens=0,
+                timings=assistant_response.timings,
                 debug_tools=assistant_response.debug_tools
             )
         except Exception as e:

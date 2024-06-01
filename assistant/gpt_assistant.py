@@ -441,7 +441,7 @@ class GPTAssistant(Assistant):
         timings: Dict[str, str] = {}
 
         # Prepare response datastructure
-        returned_response = AssistantResponse(token_usage_by_model={}, capabilities_used=[], response="", debug_tools="")
+        returned_response = AssistantResponse(token_usage_by_model={}, capabilities_used=[], response="", debug_tools="", timings="")
 
         # Make copy of message history so we can modify it in-flight during tool use
         message_history = message_history.copy() if message_history else None
@@ -640,8 +640,8 @@ class GPTAssistant(Assistant):
         timings["total_time"] = f"{t1-tstart:.3f}"
 
         # Return final response
-        tools_used.append(timings)
         returned_response.debug_tools = json.dumps(tools_used)
+        returned_response.timings = json.dumps(timings)
         returned_response.image = ""
         return returned_response
 

@@ -18,6 +18,7 @@ import os
 import requests
 from typing import List, Optional
 
+import numpy as np
 from pydantic import BaseModel, RootModel
 
 from models import Capability, MultimodalResponse
@@ -102,6 +103,7 @@ class ReportGenerator:
         filename = f"{base}.md"
         self._fp = open(file=filename, mode="w")
         self._fp.write(f"# {test_filepath}\n\n")
+        self._total_times = []
     
     def __del__(self):
         if not self._generate_markdown:
@@ -109,6 +111,7 @@ class ReportGenerator:
         self._fp.close()
 
     def begin_test(self, name: str):
+        self._total_times = []
         if not self._generate_markdown:
             return
         self._fp.write(f"## {name}\n\n")
@@ -133,10 +136,31 @@ class ReportGenerator:
         debug_column = f"```{response.debug_tools}```"
         self._fp.write(f"|{passed_column}|{user_column}|{assistant_column}|{image_column}|{debug_column}|\n")
 
+        # Timings
+        try:
+            timings = json.loads(response.timings)
+            self._total_times.append(float(timings["total_time"]))
+        except:
+            pass
+
     def end_test(self, num_passed: int, num_evaluated: int):
+        mean_time = np.mean(self._total_times)
+        median_time = np.median(self._total_times)
+        min_time = np.min(self._total_times)
+        max_time = np.max(self._total_times)
+        pct90_time = np.quantile(self._total_times, q=0.9)
+        pct95_time = np.quantile(self._total_times, q=0.95)
+        pct99_time = np.quantile(self._total_times, q=0.99)
         if not self._generate_markdown:
             return
-        self._fp.write(f"**Score: {100.0 * num_passed / num_evaluated : .1f}%**\n\n")
+        if num_evaluated == 0:
+            self._fp.write(f"**Score: N/A**\n\n")
+        else:
+            self._fp.write(f"**Score: {100.0 * num_passed / num_evaluated : .1f}%**\n\n")
+        self._fp.write(f"**Timings**\n")
+        self._fp.write(f"|Mean|Median|Min|Max|90%|95%|99%|\n")
+        self._fp.write(f"|----|------|---|---|---|---|---|\n")
+        self._fp.write(f"|{mean_time:.1f}|{median_time:.1f}|{min_time:.1f}|{max_time:.1f}|{pct90_time:.1f}|{pct95_time:.1f}|{pct99_time:.1f}|\n\n")
 
     @staticmethod
     def _escape(text: str) -> str:
@@ -289,7 +313,10 @@ if __name__ == "__main__":
         # Print test results
         print("")
         print(f"TEST RESULTS: {test.name}")
-        print(f"  Score: {num_passed}/{num_evaluated} = {100.0 * num_passed / num_evaluated : .1f}%")
+        if num_evaluated == 0:
+            print(f"  Score: N/A")
+        else:
+            print(f"  Score: {num_passed}/{num_evaluated} = {100.0 * num_passed / num_evaluated : .1f}%")
         report.end_test(num_passed=num_passed, num_evaluated=num_evaluated)
 
     # Summary
