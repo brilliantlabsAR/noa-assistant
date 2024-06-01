@@ -13,7 +13,7 @@ import aiohttp
 from pydantic import BaseModel
 import geopy.geocoders
 
-from models import TokenUsage
+from models import Message, TokenUsage
 from .web_search import WebSearch, WebSearchResult
 
 
@@ -161,7 +161,7 @@ class DataForSEOWebSearch(WebSearch):
             self._client = DataForSEOClient()
 
     # DataForSEO does not have reverse image search, so photos are always ignored
-    async def search_web(self, query: str, token_usage_by_model: Dict[str, TokenUsage], use_photo: bool = False, image_bytes: bytes | None = None, location: str | None = None) -> WebSearchResult:
+    async def search_web(self, query: str, message_history: List[Message] | None, token_usage_by_model: Dict[str, TokenUsage], use_photo: bool = False, image_bytes: bytes | None = None, location: str | None = None) -> WebSearchResult:
         await self._lazy_init()
         if location:
             # DataForSEO expects lat,long+

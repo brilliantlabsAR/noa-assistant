@@ -57,13 +57,26 @@ class PerplexityWebSearch(WebSearch):
             # This instantiation must happen inside of an async event loop
             self._session = aiohttp.ClientSession()
     
-    async def search_web(self, query: str, token_usage_by_model: Dict[str, TokenUsage], use_photo: bool = False, image_bytes: bytes | None = None, location: str | None = None) -> WebSearchResult:
+    async def search_web(
+        self,
+        query: str,
+        message_history: List[Message] | None,
+        token_usage_by_model: Dict[str, TokenUsage],
+        use_photo: bool = False,
+        image_bytes: bytes | None = None,
+        location: str | None = None
+    ) -> WebSearchResult:
         await self._lazy_init()
 
+        message_history = [] if message_history is None else message_history.copy()
+        message_history = self._prune_history(message_history=message_history)
+
         messages = [
-            Message(role=Role.SYSTEM, content=self._system_message(location=location)),
+            Message(role=Role.SYSTEM, content=self._system_message(location=location))
+        ] + message_history + [
             Message(role=Role.USER, content=query)
         ]
+        print(messages)
 
         url = "https://api.perplexity.ai/chat/completions"
         payload = {
@@ -81,7 +94,13 @@ class PerplexityWebSearch(WebSearch):
             return WebSearchResult(summary="No results", search_provider_metadata="")
 
         # Return results
-        perplexity_data = PerplexityResponse.model_validate_json(json_text)
+        # print(json_text)
+        try:
+            perplexity_data = PerplexityResponse.model_validate_json(json_text)
+        except Exception as e:
+            print(json_text)
+            print(f"Failed to parse Perplexity response: {e}")
+            return WebSearchResult(summary="No results", search_provider_metadata="")
         accumulate_token_usage(
             token_usage_by_model=token_usage_by_model,
             model=self._model,
@@ -109,5 +128,37 @@ class PerplexityWebSearch(WebSearch):
         if location is None or len(location) == 0:
             location = "<you do not know user's location and if asked, tell them so>"
         return f"reply in concise and short with high accurancy from web results if needed take location as {location}"
+
+    @staticmethod
+    def _prune_history(
+        message_history: List[Message],
+        max_messages: int = 8
+     ) -> List[Message]:
+        """
+        Prunes down the chat history to save tokens, improving inference speed and reducing cost.
+        Generally, preserving all assistant responses is not needed, and only a limited number of
+        user messages suffice to maintain a coherent conversation.
+
+        Parameters
+        ----------
+        message_history : List[Message]
+            Conversation history. This list will be mutated and returned.
+        max_messages : int
+            Maximum number of messages to preserve. Must be an even number because Perplexity
+            requires alternating user and assistant messages.
+
+        Returns
+        -------
+        List[Message]
+            Pruned history. This is the same list passed as input.
+        """
+        if max_messages %2 != 0:
+            print("ERROR: Discarding invalid message history for Perplexity. Require alternating user/assistant messages!")
+            return []
+        message_history.reverse()
+        message_history = [ message for message in message_history if message.role != Role.SYSTEM ]
+        message_history = message_history[0:max_messages]
+        message_history.reverse()
+        return message_history
 
 WebSearch.register(PerplexityWebSearch)

@@ -7,10 +7,14 @@
 *.png
 *.md
 *.html
+*.wav
 !docs/noa_assistant.drawio.png
 !.env.example
 !requirements.txt
 __pycache__
 dev_deploy.sh
+load_audio.sh
 env
 Dockerfile
+audio_logs
+audio

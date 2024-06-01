@@ -26,7 +26,7 @@ from typing import Any, Dict, List
 import openai
 from openai.types.chat import ChatCompletionMessageToolCall
 import groq
-from groq.types.chat.chat_completion import ChoiceMessageToolCall
+# from groq.types.chat.chat_completion_message_tool_call import ChatCompletionMessageToolCall
 
 from .assistant import Assistant, AssistantResponse
 from .context import create_context_system_message
@@ -68,8 +68,6 @@ SEARCH_TOOL_NAME = "web_search"
 PHOTO_TOOL_NAME = "analyze_photo"
 IMAGE_GENERATION_PARAM_NAME = "description"
 QUERY_PARAM_NAME = "query"
-PHOTO_TOOL_WEB_SEARCH_PARAM_NAME = "google_reverse_image_search"
-PHOTO_TOOL_TRANSLATION_PARAM_NAME = "translate"
 
 TOOLS = [
     {
@@ -146,8 +144,9 @@ Use this tool if user refers to something not identifiable from conversation con
 
 async def handle_tool(
     tools: List[Any],
-    tool_call: ChatCompletionMessageToolCall | ChoiceMessageToolCall,
+    tool_call: ChatCompletionMessageToolCall,
     user_message: str,
+    message_history: List[Message] | None,
     image_bytes: bytes | None,
     location: str | None,
     local_time: str | None,
@@ -176,6 +175,7 @@ async def handle_tool(
         tools=tools,
         tool_call=tool_call,
         user_message=user_message,
+        message_history=message_history,
         image_bytes=image_bytes,
         location=location,
         local_time=local_time,
@@ -214,8 +214,9 @@ async def handle_tool(
 
 def prepare_tool_arguments(
     tools: List[Any],
-    tool_call: ChatCompletionMessageToolCall | ChoiceMessageToolCall,
+    tool_call: ChatCompletionMessageToolCall,
     user_message: str,
+    message_history: List[Message] | None,
     image_bytes: bytes | None,
     location: str | None,
     local_time: str | None,
@@ -254,6 +255,7 @@ def prepare_tool_arguments(
     # Fill in args required by all tools
     args["location"] = location if location else "unknown"
     args[QUERY_PARAM_NAME] = args[QUERY_PARAM_NAME] if QUERY_PARAM_NAME in args else user_message
+    args["message_history"] = message_history
     args["token_usage_by_model"] = token_usage_by_model
 
     # Photo tool additional parameters we need to inject
@@ -271,6 +273,7 @@ def prepare_tool_arguments(
 
 async def handle_general_knowledge_tool(
     query: str,
+    message_history: List[Message] | None,
     token_usage_by_model: Dict[str, TokenUsage],
     image_bytes: bytes | None = None,
     local_time: str | None = None,
@@ -291,6 +294,7 @@ async def handle_general_knowledge_tool(
 
 async def handle_photo_tool(
     query: str,
+    message_history: List[Message] | None,
     vision: Vision,
     web_search: WebSearch,
     token_usage_by_model: Dict[str, TokenUsage],
@@ -333,6 +337,7 @@ async def handle_photo_tool(
     capabilities_used.append(Capability.REVERSE_IMAGE_SEARCH if output.reverse_image_search else Capability.WEB_SEARCH)
     web_result = await web_search.search_web(
         query=output.web_query.strip("\""),
+        message_history=message_history,
         use_photo=output.reverse_image_search,
         image_bytes=image_bytes,
         location=location,
@@ -343,6 +348,7 @@ async def handle_photo_tool(
 
 async def handle_image_generation_tool(
     query: str,
+    message_history: List[Message] | None,
     description: str,
     token_usage_by_model: Dict[str, TokenUsage],
     image_bytes: bytes | None = None,
@@ -431,7 +437,11 @@ class GPTAssistant(Assistant):
         # GPT-4o is a special case: if vision tool is also GPT-4o, then we remove it as a tool and
         # always submit images with queries.
         gpt4o_end_to_end = False
-        if model == "gpt-4o" and isinstance(vision, GPT4Vision) and vision.model == "gpt-4o":
+        # End-to-end mode DISABLED for now to improve latency: in end-to-end mode, every image is
+        # processed, which is slower for queries that don't require image analysis. So we actually
+        # want to use the vision tool to device when to do that. Assumption is that most questions
+        # are not vision-related.
+        if  False and model == "gpt-4o" and isinstance(vision, GPT4Vision) and vision.model == "gpt-4o":
             speculative_vision = False  # doesn't make sense anymore
             tools = [ tool for tool in tools if tool["function"]["name"] != PHOTO_TOOL_NAME ]
             print("End-to-end GPT-4o assistant activated")
@@ -445,6 +455,7 @@ class GPTAssistant(Assistant):
 
         # Make copy of message history so we can modify it in-flight during tool use
         message_history = message_history.copy() if message_history else None
+        full_message_history = message_history.copy() if message_history else None
 
         # Add user message to message history or create a new one if necessary
         user_message = Message(role=Role.USER, content=prompt)
@@ -491,6 +502,7 @@ class GPTAssistant(Assistant):
         speculative_vision_task = asyncio.create_task(
             handle_photo_tool(
                 query=prompt,
+                message_history=full_message_history,
                 vision=vision,
                 web_search=web_search,
                 token_usage_by_model=returned_response.token_usage_by_model,
@@ -503,6 +515,16 @@ class GPTAssistant(Assistant):
                 learned_context=learned_context
             )
         ) if speculative_vision else None
+
+        speculative_search_task = asyncio.create_task(
+            web_search.search_web(
+                query=prompt,
+                message_history=full_message_history,
+                token_usage_by_model=returned_response.token_usage_by_model,
+                image_bytes=image_bytes,
+                location=location_address
+            )
+        ) 
 
         # Initial GPT call, which may request tool use
         initial_llm_task = asyncio.create_task(
@@ -518,6 +540,8 @@ class GPTAssistant(Assistant):
         initial_tasks = [ initial_llm_task ]
         if speculative_vision_task is not None:
             initial_tasks.append(speculative_vision_task)
+        if speculative_search_task is not None:
+            initial_tasks.append(speculative_search_task)
         completed_tasks, pending_tasks = await asyncio.wait(initial_tasks, return_when=asyncio.FIRST_COMPLETED)
         first_response = await initial_llm_task
         first_response_message = first_response.choices[0].message
@@ -540,10 +564,9 @@ class GPTAssistant(Assistant):
         tools_used = []
         tools_used.append({ "learned_context": learned_context })   # log context here for now
         if first_response_message.tool_calls:
-            # if image generation tool then kill speculative vision task
+            # If image generation tool then kill speculative tasks
             if first_response_message.tool_calls[0].function.name == IMAGE_GENERATION_TOOL_NAME:
-                if speculative_vision_task is not None:
-                    speculative_vision_task.cancel()
+                self._cancel_tasks([ speculative_vision_task, speculative_search_task ])
             # Append initial response to history, which may include tool use
             message_history.append(first_response_message)
 
@@ -562,12 +585,24 @@ class GPTAssistant(Assistant):
                             search_result=None
                         )
                     )
+                elif tool_call.function.name == SEARCH_TOOL_NAME and speculative_search_task is not None:
+                    tool_handlers.append(speculative_search_task)
+                    returned_response.capabilities_used.append(Capability.WEB_SEARCH)
+                    tools_used.append(
+                        create_debug_tool_info_object(
+                            function_name=SEARCH_TOOL_NAME,
+                            function_args={},
+                            tool_time=-1,
+                            search_result=None
+                        )
+                    )
                 else:
                     tool_handlers.append(
                         handle_tool(
                             tools=tools,
                             tool_call=tool_call,
                             user_message=prompt,
+                            message_history=full_message_history,   # full history because tools may have their own requirements on history length
                             image_bytes=image_bytes,
                             location=location_address,
                             local_time=local_time,
@@ -591,7 +626,7 @@ class GPTAssistant(Assistant):
 
             # Append all the responses for GPT to continue
             for i in range(len(tool_outputs)):
-                # if image generation tool then return response
+                # If image generation tool then return response
                 if first_response_message.tool_calls[i].function.name == IMAGE_GENERATION_TOOL_NAME:
                     returned_response.response = "Here is the image you requested"
                     returned_response.capabilities_used.append(Capability.IMAGE_GENERATION)
@@ -627,9 +662,8 @@ class GPTAssistant(Assistant):
             )
             returned_response.response = second_response.choices[0].message.content
         else:
-            # No tools, cancel speculative vision task
-            if speculative_vision_task is not None:
-                speculative_vision_task.cancel()
+            # No tools, cancel speculative tasks
+            self._cancel_tasks([ speculative_vision_task, speculative_search_task ])
 
         # If no tools were used, only assistant capability recorded
         if len(returned_response.capabilities_used) == 0:
@@ -644,6 +678,12 @@ class GPTAssistant(Assistant):
         returned_response.timings = json.dumps(timings)
         returned_response.image = ""
         return returned_response
+    
+    @staticmethod
+    def _cancel_tasks(tasks: list):
+        for task in tasks:
+            if task is not None:
+                task.cancel()
 
     @staticmethod
     def _prune_history(message_history: List[Message]) -> List[Message]:

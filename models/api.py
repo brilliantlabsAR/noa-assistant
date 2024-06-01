@@ -74,6 +74,7 @@ class MultimodalRequest(BaseModel):
     speculative_vision: Optional[bool] = True
     generate_image: Optional[int] = 0
     generate_image_service: Optional[GenerateImageService] = GenerateImageService.REPLICATE
+    testing_mode: Optional[bool] = False
 
 class MultimodalResponse(BaseModel):
     user_prompt: str

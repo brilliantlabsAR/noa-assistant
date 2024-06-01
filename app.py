@@ -10,7 +10,7 @@ from io import BytesIO
 import os
 import traceback
 from typing import Annotated, Dict, List, Tuple
-
+import glob
 import openai
 import anthropic
 import groq
@@ -139,6 +139,21 @@ def get_vision_provider(app, mm: MultimodalRequest) -> Vision | None:
 async def api_health():
     return {"status":200,"message":"running ok"}
 
+MAX_FILES = 100
+AUDIO_DIR = "audio"
+
+def get_next_filename():
+    existing_files = sorted(glob.glob(f"{AUDIO_DIR}/audio*.wav"))
+    # if audio directory does not exist, create it
+    if not os.path.exists(AUDIO_DIR):
+        os.makedirs(AUDIO_DIR)
+    if len(existing_files) < MAX_FILES:
+        return f"{AUDIO_DIR}/audio{len(existing_files) + 1}.wav"
+    else:
+        # All files exist, so find the oldest one to overwrite
+        oldest_file = min(existing_files, key=os.path.getmtime)
+        return oldest_file
+
 @app.post("/mm")
 async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFile = None, image: UploadFile = None):
     try:
@@ -149,7 +164,15 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
         voice_prompt = ""
         if audio:
             audio_bytes = await audio.read()
+            if mm.testing_mode:
+                #  save audio file
+                # set timestamp
+                # filepath = "audio.wav" + str(datetime.now().timestamp())
+                filepath = get_next_filename()
+                with open(filepath, "wb") as f:
+                    f.write(audio_bytes)
             voice_prompt = await transcribe(client=request.app.state.openai_client, audio_bytes=audio_bytes)
+
 
         # Construct final prompt
         if mm.prompt is None or len(mm.prompt) == 0 or mm.prompt.isspace() or mm.prompt == "":
