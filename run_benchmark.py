@@ -145,6 +145,8 @@ class ReportGenerator:
             pass
 
     def end_test(self, num_passed: int, num_evaluated: int):
+        if not self._generate_markdown:
+            return
         mean_time = np.mean(self._total_times)
         median_time = np.median(self._total_times)
         min_time = np.min(self._total_times)
@@ -152,8 +154,6 @@ class ReportGenerator:
         pct90_time = np.quantile(self._total_times, q=0.9)
         pct95_time = np.quantile(self._total_times, q=0.95)
         pct99_time = np.quantile(self._total_times, q=0.99)
-        if not self._generate_markdown:
-            return
         if num_evaluated == 0:
             self._fp.write(f"**Score: N/A**\n\n")
         else:
