@@ -234,28 +234,6 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
         # User's local time
         local_time = mm.local_time
 
-        # Image generation (bypasses assistant altogether)
-        if mm.generate_image != 0:
-            if mm.generate_image_service == GenerateImageService.REPLICATE:
-                generate_image = ReplicateGenerateImage()
-                image_url = await generate_image.generate_image(
-                    query=user_prompt,
-                    use_image=True,
-                    image_bytes=image_bytes
-                )
-                return MultimodalResponse(
-                    user_prompt=user_prompt,
-                    response="",
-                    image=image_url,
-                    token_usage_by_model={},
-                    capabilities_used=[Capability.IMAGE_GENERATION],
-                    total_tokens=0,
-                    input_tokens=0,
-                    output_tokens=0,
-                    timings="",
-                    debug_tools=""
-                )
-
         # Get assistant tool providers
         web_search: WebSearch = get_web_search_provider(app=request.app, mm=mm)
         vision: Vision = get_vision_provider(app=request.app, mm=mm)
@@ -334,10 +312,6 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
 
         # User's local time
         local_time = mm.local_time
-
-        # Image generation
-        if mm.generate_image != 0:
-            raise RuntimeError("Image generation mode not supported by streaming endpoint")
 
         # Get assistant tool providers
         web_search: WebSearch = get_web_search_provider(app=request.app, mm=mm)
