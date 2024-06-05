@@ -25,8 +25,8 @@ from typing import Any, Dict, List
 
 import openai
 from openai.types.chat import ChatCompletionMessageToolCall
+from openai.types.chat import ChatCompletionChunk
 import groq
-# from groq.types.chat.chat_completion_message_tool_call import ChatCompletionMessageToolCall
 
 from .assistant import Assistant, AssistantResponse
 from .context import create_context_system_message
@@ -423,7 +423,7 @@ class GPTAssistant(Assistant):
         web_search: WebSearch,
         vision: Vision,
         speculative_vision: bool
-    ) -> AssistantResponse:
+    ):
         # Default model (differs for OpenAI and Groq)
         if model is None:
             if type(self._client) == openai.AsyncOpenAI:
@@ -649,24 +649,18 @@ class GPTAssistant(Assistant):
                     }
                 )
 
-            # Get final response from model
-            t0 = timeit.default_timer()
-            second_response = await self._client.chat.completions.create(
+            # Get final response from model as a stream. This produces its own copy of the final
+            # response, allowing returned_response to be discarded.
+            async for response_chunk in self._final_llm_call_stream(
                 model=model,
-                messages=message_history
-            )
-            t1 = timeit.default_timer()
-            timings["llm_final"] = f"{t1-t0:.3f}"
-
-            # Aggregate tokens and response
-            accumulate_token_usage(
+                message_history=message_history,
                 token_usage_by_model=returned_response.token_usage_by_model,
-                model=model,
-                input_tokens=second_response.usage.prompt_tokens,
-                output_tokens=second_response.usage.completion_tokens,
-                total_tokens=second_response.usage.total_tokens
-            )
-            returned_response.response = second_response.choices[0].message.content
+                capabilities_used=returned_response.capabilities_used,
+                debug_tools=json.dumps(tools_used),
+                timings=timings
+            ):
+                yield response_chunk
+            return  # nothing follows, exit early
         else:
             # No tools, cancel speculative tasks
             self._cancel_tasks([ speculative_vision_task, speculative_search_task ])
@@ -683,8 +677,62 @@ class GPTAssistant(Assistant):
         returned_response.debug_tools = json.dumps(tools_used)
         returned_response.timings = json.dumps(timings)
         returned_response.image = ""
-        return returned_response
+        yield returned_response
+        return
     
+    async def _final_llm_call_stream(
+        self,
+        model: str,
+        message_history: List[Message],
+        token_usage_by_model: Dict[str, TokenUsage],
+        capabilities_used: List[Capability],
+        debug_tools: str,
+        timings: Dict[str, str]
+    ):
+        t0 = timeit.default_timer()
+        stream = await self._client.chat.completions.create(
+            model=model,
+            messages=message_history,
+            stream=True,
+            stream_options={ "include_usage": True }
+        )
+        accumulated_response = []
+        async for chunk in stream:
+            if len(chunk.choices) == 0:
+                # Final chunk has usage. We also return the complete, accumulated response here.
+                t1 = timeit.default_timer()
+                timings["llm_final"] = f"{t1-t0:.3f}"
+                accumulate_token_usage(
+                    token_usage_by_model=token_usage_by_model,
+                    model=model,
+                    input_tokens=chunk.usage.prompt_tokens,
+                    output_tokens=chunk.usage.completion_tokens,
+                    total_tokens=chunk.usage.total_tokens
+                )
+                yield AssistantResponse(
+                    token_usage_by_model=token_usage_by_model,
+                    capabilities_used=capabilities_used,
+                    response="".join(accumulated_response),
+                    debug_tools=debug_tools,
+                    timings=json.dumps(timings),
+                    image="",
+                    stream_finished=True
+                )
+                break
+            else:
+                response_chunk = chunk.choices[0].delta.content
+                if response_chunk is not None:  # an empty content chunk can occur before the stop event
+                    accumulated_response.append(response_chunk)
+                    yield AssistantResponse(
+                        token_usage_by_model={},
+                        capabilities_used=[],
+                        response=response_chunk,
+                        debug_tools="",
+                        timings="",
+                        image="",
+                        stream_finished=False
+                    )
+
     @staticmethod
     def _cancel_tasks(tasks: list):
         for task in tasks:

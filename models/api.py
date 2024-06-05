@@ -87,6 +87,7 @@ class MultimodalResponse(BaseModel):
     output_tokens: int
     timings: str
     debug_tools: str
+    stream_finished: bool = True
 
 class ExtractLearnedContextRequest(BaseModel):
     messages: List[Message]

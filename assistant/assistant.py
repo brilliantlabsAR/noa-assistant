@@ -20,9 +20,10 @@ class AssistantResponse:
     token_usage_by_model: Dict[str, TokenUsage]
     capabilities_used: List[Capability]
     response: str
-    debug_tools: str    # debugging information about tools used (no particular format guaranteed)
+    debug_tools: str                # debugging information about tools used (no particular format guaranteed)
     timings: str
     image: str | None = None
+    stream_finished: bool = True    # for streaming versions, indicates final response chunk
 
 class Assistant(ABC):
     @abstractmethod

@@ -22,6 +22,7 @@ import numpy as np
 from pydantic import BaseModel, RootModel
 
 from models import Capability, MultimodalResponse
+from util import hexdump
 
 
 ####################################################################################################
@@ -235,19 +236,18 @@ if __name__ == "__main__":
 
                 # Construct API call data
                 if localhost:
-                    options.endpoint = "http://localhost:8000/mm"
+                    options.endpoint = "http://localhost:8000/mm_stream"
                     data = { 
                         "mm": json.dumps({
-                                    "prompt": user_message.text,
-                                    "messages": history,
-                                    "address": options.address,
-                                    "local_time": datetime.now().strftime("%A, %B %d, %Y, %I:%M %p"),
-                                    "search_api": "perplexity",
-                                    "config": { "engine": "google_lens" },
-                                    "experiment": "1",
-                                    "vision": options.vision
-                                }
-                            ),
+                            "prompt": user_message.text,
+                            "messages": history,
+                            "address": options.address,
+                            "local_time": datetime.now().strftime("%A, %B %d, %Y, %I:%M %p"),
+                            "search_api": "perplexity",
+                            "config": { "engine": "google_lens" },
+                            "experiment": "1",
+                            "vision": options.vision
+                        }),
                     }
                 else:
                     data = { 
@@ -265,18 +265,33 @@ if __name__ == "__main__":
                     files["image"] = (os.path.basename(user_message.image), load_binary_file(filepath=user_message.image))
 
                 # Make the call and evaluate
-                response = requests.post(url=options.endpoint, files=files, data=data, headers=headers)
-                error = False
                 try:
-                    if response.status_code != 200:
-                        print(f"Error: {response.status_code}")
-                        print(response.content)
-                        response.raise_for_status()
-                    #print(response.content)
-                    mm_response = MultimodalResponse.model_validate_json(json_data=response.content)
-                    #print("Sent:")
-                    #print(json.dumps(history))
+                    # Make streaming call and accumulate all chunks
+                    with requests.post(url=options.endpoint, files=files, data=data, headers=headers, stream=True) as response:
+                        if response.status_code != 200:
+                            print(f"Error: {response.status_code}")
+                            print(response.content)
+                            response.raise_for_status()
+                        
+                        # Get all chunks
+                        response_chunks = []
+                        expecting_json_data = False
+                        for line in response.iter_lines():
+                            if line is not None:
+                                line = line.decode("utf-8")
+                                if expecting_json_data and line.startswith("data:"):
+                                    chunk = MultimodalResponse.model_validate_json(json_data=line.lstrip("data:").strip())
+                                    response_chunks.append(chunk)
+                                    expecting_json_data = False # reset state
+                                elif line.startswith("event: json"):
+                                    expecting_json_data = True  # json event, get next data
+                                elif line.startswith("event:"):
+                                    expecting_json_data = False # some other event, discard data
 
+                    # Last chunk has all the information we need if we don't want to actually stream
+                    mm_response = response_chunks[-1]
+        
+                    # Evaluate
                     test_result = evaluate_capabilities_used(input=user_message, output=mm_response)
                     if test_result != TestResult.IGNORED:
                         num_evaluated += 1
