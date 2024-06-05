@@ -187,6 +187,8 @@ async def handle_tool(
     )
 
     tool_start_time = timeit.default_timer()
+    if function_name == IMAGE_GENERATION_TOOL_NAME and image_bytes is None:
+        return "NO_IMAGE_PROVIDED_ERROR"
     function_response: WebSearchResult | str = await function_to_call(**function_args)
     total_tool_time = round(timeit.default_timer() - tool_start_time, 3)
     timings[f"tool_{function_name}"] = f"{total_tool_time:.3f}"
@@ -375,7 +377,7 @@ def create_debug_tool_info_object(function_name: str, function_args: Dict[str, A
     for arg_name, value in function_args.items():
         if isinstance(value, bytes):
             function_args[arg_name] = "<bytes>"
-        if isinstance(value, list):
+        if isinstance(value, list) and arg_name != "message_history":
             function_args[arg_name] = ", ".join(function_args[arg_name])
     if "vision" in function_args:
         del function_args["vision"]
@@ -628,11 +630,15 @@ class GPTAssistant(Assistant):
             for i in range(len(tool_outputs)):
                 # If image generation tool then return response
                 if first_response_message.tool_calls[i].function.name == IMAGE_GENERATION_TOOL_NAME:
-                    returned_response.response = "Here is the image you requested"
-                    returned_response.capabilities_used.append(Capability.IMAGE_GENERATION)
-                    returned_response.debug_tools = json.dumps(tools_used)
-                    returned_response.image = tool_outputs[i]
-                    return returned_response
+                    if tool_outputs[i] == "NO_IMAGE_PROVIDED_ERROR":
+                        tool_outputs[i] = "I think you're referring to something you can see. Can you provide a photo?"
+                        returned_response.image = ""
+                    else:
+                        returned_response.response = "Here is the image you requested"
+                        returned_response.capabilities_used.append(Capability.IMAGE_GENERATION)
+                        returned_response.debug_tools = json.dumps(tools_used)
+                        returned_response.image = tool_outputs[i]
+                        return returned_response
                 
                 message_history.append(
                     {
