@@ -5,6 +5,7 @@
 #
 
 import base64
+import timeit
 from typing import Dict, Optional
 
 import openai
@@ -62,22 +63,43 @@ class GPT4Vision(Vision):
             media_type = detect_media_type(image_bytes=image_bytes)
             messages[1]["content"].append({ "type": "image_url", "image_url": { "url": f"data:{media_type};base64,{image_base64}" } }),
         
-        response = await self._client.chat.completions.create(
+        # Stream out the response then accumulate
+        tstart = timeit.default_timer()
+        t1 = None
+        stream = await self._client.chat.completions.create(
             model=self._model,
             messages=messages,
-            max_tokens=4096
+            max_tokens=4096,
+            stream=True,
+            stream_options={ "include_usage": True }
         )
-
-        accumulate_token_usage(
-            token_usage_by_model=token_usage_by_model,
-            model=self._model,
-            input_tokens=response.usage.prompt_tokens,
-            output_tokens=response.usage.completion_tokens,
-            total_tokens=response.usage.total_tokens
-        )
+        accumulated_response = []
+        async for chunk in stream:
+            if len(chunk.choices) == 0:
+                # Final chunk has usage
+                accumulate_token_usage(
+                    token_usage_by_model=token_usage_by_model,
+                    model=self._model,
+                    input_tokens=chunk.usage.prompt_tokens,
+                    output_tokens=chunk.usage.completion_tokens,
+                    total_tokens=chunk.usage.total_tokens
+                )
+                break
+            else:
+                response_chunk = chunk.choices[0].delta.content
+                if response_chunk is not None:  # an empty content chunk can occur before the stop event
+                    if t1 is None:
+                        t1 = timeit.default_timer()
+                    accumulated_response.append(response_chunk)
+        response = "".join(accumulated_response)
+        tend = timeit.default_timer()
+        time_to_first = t1 - tstart
+        total_time = tend - tstart
+        pct_improvement = 100.0 * (1.0 - time_to_first / total_time)
+        print(f"TIMING -- first: {time_to_first:.1f}, total: {total_time:.1f}, improvement: {pct_improvement:.1f}%")
         
         # Convert to VisionResponse and return
-        output = self._parse_response(content=response.choices[0].message.content)
+        output = self._parse_response(response)
         if output is None:
             return None
         web_query = output.web_query if output.web_query is not None else ""
