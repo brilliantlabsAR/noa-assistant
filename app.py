@@ -159,6 +159,7 @@ def get_next_filename():
 async def assistant_response_generator(
     assistant: Assistant,
     user_prompt: str,
+    image_bytes: bytes | None,
     mm: MultimodalRequest,
     local_time: str | None,
     address: str | None,
@@ -323,6 +324,7 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
             generator = assistant_response_generator(
                 assistant=assistant,
                 user_prompt=user_prompt,
+                image_bytes=image_bytes,
                 mm=mm,
                 local_time=local_time,
                 address=address,
