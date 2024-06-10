@@ -1,3 +1,5 @@
+#TODO NEXT: Cannot stream single tool output directly in case of dummy knowledge tool!
+
 #
 # new_assistant.py
 #
@@ -5,8 +7,6 @@
 #
 # TODO:
 # -----
-# - Fix message history passed to tools (should not include system messages but must include user
-#   message)
 # - Image generation
 # - Token use by model
 #
@@ -23,8 +23,6 @@ import openai
 from openai.types.chat import ChatCompletionMessageToolCall
 
 from models import Message, Capability, TokenUsage
-from web_search import WebSearch
-from vision import GPT4Vision
 from models import Role, Message, Capability, TokenUsage, accumulate_token_usage
 from util import detect_media_type
 
@@ -90,23 +88,23 @@ TOOLS = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": SEARCH_TOOL_NAME,
-            "description": """Up-to-date information on news, retail products, current events, local conditions, and esoteric knowledge""",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    QUERY_PARAM_NAME: {
-                        "type": "string",
-                        "description": "search query",
-                    },
-                },
-                "required": [ QUERY_PARAM_NAME ]
-            },
-        },
-    },
+    # {
+    #     "type": "function",
+    #     "function": {
+    #         "name": SEARCH_TOOL_NAME,
+    #         "description": """Up-to-date information on news, retail products, current events, local conditions, and esoteric knowledge""",
+    #         "parameters": {
+    #             "type": "object",
+    #             "properties": {
+    #                 QUERY_PARAM_NAME: {
+    #                     "type": "string",
+    #                     "description": "search query",
+    #                 },
+    #             },
+    #             "required": [ QUERY_PARAM_NAME ]
+    #         },
+    #     },
+    # },
     {
         "type": "function",
         "function": {
@@ -159,6 +157,18 @@ class Stream:
     task: asyncio.Task[Any]
     queue: asyncio.Queue    # output streamed here
 
+    async def get_final_output(self):
+        """
+        Returns
+        -------
+        Any
+            Waits for the final AssistantResponse output of the queue. Assumes the task is running. 
+        """
+        while True:
+            response_chunk: AssistantResponse = await asyncio.wait_for(self.queue.get(), timeout=60)
+            if response_chunk.stream_finished:  # final cumulative response
+                return response_chunk
+
 class NewAssistant:
     def __init__(self, client: openai.AsyncOpenAI):
         self._client = client
@@ -173,6 +183,8 @@ class NewAssistant:
         location_address: str | None,
         local_time: str | None
     ):
+        t_start = timeit.default_timer()
+
         message_history = self._truncate_message_history(message_history=message_history) if message_history else []
         messages = self._insert_system_message(messages=message_history, system_message=SYSTEM_MESSAGE)
         messages = self._insert_user_message(messages=messages, user_prompt=prompt)
@@ -220,10 +232,10 @@ class NewAssistant:
                 # tool output directly
                 output_stream = speculative_tool_stream
             else:
-                # Perform tool calls
+                # Perform tool calls and get output streams
                 messages.append(initial_response_message)
                 #TODO: use speculative tools if possible
-                tool_outputs = await self._handle_tools(
+                tool_streams = await self._handle_tools(
                     stream_by_tool_name=stream_by_tool_name,
                     tool_calls=tool_calls,
                     flavor_prompt=flavor_prompt,
@@ -232,14 +244,30 @@ class NewAssistant:
                     location_address=location_address,
                     local_time=local_time
                 )
-                output_stream = await self._complete_tool_response(messages=messages, tool_calls=tool_calls, tool_outputs=tool_outputs)
+
+                # If multiple output streams, we have to invoke the LLM again in order to produce a
+                # coherent response. Otherwise, we can stream out the single tool output directly.
+                if len(tool_streams) != 1:
+                    output_stream = await self._complete_tool_response(messages=messages, tool_calls=tool_calls, tool_streams=tool_streams)
+                else:
+                    output_stream = tool_streams[0]
             
             # Stream out the output from the queue
+            t_first = None
             while True:
                 response_chunk: AssistantResponse = await asyncio.wait_for(output_stream.queue.get(), timeout=60)   # will throw on timeout, killing the request
+                if t_first is None:
+                    t_first = timeit.default_timer()
                 yield response_chunk
                 if response_chunk.stream_finished:
                     break
+            t_end = timeit.default_timer()
+            print("")
+            print(f"Timings")
+            print(f"-------")
+            print(f"  first token: {t_first-t_start:.2f}")
+            print(f"  total      : {t_end-t_start:.2f}")
+            print("")
         
         # Clean up
         self._cancel_streams(stream_by_tool_name=stream_by_tool_name)
@@ -248,9 +276,13 @@ class NewAssistant:
         self,
         messages: List[Message],
         tool_calls: List[ChatCompletionMessageToolCall],
-        tool_outputs: List[AssistantResponse]
+        tool_streams: List[Stream]
     ) -> Stream:
-        assert len(tool_calls) == len(tool_outputs)
+        assert len(tool_calls) == len(tool_streams)
+
+        # Wait for all tool streams to complete and get only their final outputs (which contain the
+        # complete, aggregated response)
+        tool_outputs = await asyncio.gather(*[ stream.get_final_output() for stream in tool_streams ])
 
         # Tool responses -> messages
         for i in range(len(tool_outputs)):
@@ -325,7 +357,7 @@ class NewAssistant:
         image_bytes: bytes | None,
         location_address: str | None,
         local_time: str | None
-    ) -> List[AssistantResponse]:
+    ) -> List[Stream]:
         # Tool names in the order that function calling requested them
         requested_tool_names = [ tool_call.function.name for tool_call in tool_calls ]
 
@@ -347,21 +379,9 @@ class NewAssistant:
                     location_address=location_address,
                     local_time=local_time
                 )
-        
-        # Wait for all the tasks to finish and then grab the final results from their queues. Be
-        # careful to do this in the same order as the tool calls.
-        tasks = [ stream.task for stream in stream_by_tool_name.values() ]
-        final_tool_responses = []
-        await asyncio.gather(*tasks)
-        for tool_name in requested_tool_names:
-            stream = stream_by_tool_name[tool_name]
-            while not stream.queue.empty():
-                response_chunk: AssistantResponse = await asyncio.wait_for(stream.queue.get(), timeout=60)
-                if response_chunk.stream_finished:  # final cumulative response
-                    final_tool_responses.append(response_chunk)
-                    break
 
-        return final_tool_responses
+        # Return all the tool streams in the order that function calling requested them
+        return [ stream_by_tool_name[tool_name] for tool_name in requested_tool_names ]
 
     def _create_tool_call(
         self,
@@ -411,17 +431,28 @@ class NewAssistant:
     @staticmethod
     def _create_error_stream(queue: asyncio.Queue, message: str) -> Stream:
         # For failed tool calls, just create a dummy stream that outputs an error response
-        queue.put_noawait(AssistantResponse.error_response(message=message))
+        queue.put_nowait(AssistantResponse.error_response(message=message))
     
     async def _handle_general_knowledge_tool(
         self,
         queue: asyncio.Queue,
+        query: str,
         flavor_prompt: str | None,
         message_history: List[Message],
         image_bytes: bytes | None,
         location_address: str | None,
         local_time: str | None
     ):
+        """
+        Dummy general knowledge tool that tricks GPT into generating an answer directly instead of
+        reaching for web search. GPT knows that the web contains information on virtually everything, so
+        it tends to overuse web search. One solution is to very carefully enumerate the cases for which
+        web search is appropriate, but this is tricky. Should "Albert Einstein's birthday" require a web
+        search? Probably not, as GPT has this knowledge baked in. The trick we use here is to create a
+        "general knowledge" tool that contains any information Wikipedia or an encyclopedia would have
+        (a reasonable proxy for things GPT knows). We return an empty string, which forces GPT to
+        produce its own response at the expense of a little bit of latency for the tool call.
+        """
         dummy_response = AssistantResponse(
             token_usage_by_model={},
             capabilities_used=[ Capability.ASSISTANT_KNOWLEDGE ],

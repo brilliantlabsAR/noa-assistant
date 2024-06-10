@@ -16,6 +16,7 @@ from enum import Enum
 import json
 import os
 import requests
+import timeit
 from typing import List, Optional
 
 import numpy as np
@@ -276,9 +277,12 @@ if __name__ == "__main__":
                         # Get all chunks
                         response_chunks = []
                         expecting_json_data = False
+                        t_start = timeit.default_timer()
+                        t_first = None
                         for line in response.iter_lines():
-                            print(line)
                             if line is not None:
+                                if t_first is None:
+                                    t_first = timeit.default_timer()
                                 line = line.decode("utf-8")
                                 if expecting_json_data and line.startswith("data:"):
                                     chunk = MultimodalResponse.model_validate_json(json_data=line.lstrip("data:").strip())
@@ -288,6 +292,13 @@ if __name__ == "__main__":
                                     expecting_json_data = True  # json event, get next data
                                 elif line.startswith("event:"):
                                     expecting_json_data = False # some other event, discard data
+                        t_end = timeit.default_timer()
+                        print("")
+                        print(f"Timings")
+                        print(f"-------")
+                        print(f"  first token: {t_first-t_start:.2f}")
+                        print(f"  total      : {t_end-t_start:.2f}")
+                        print("")
 
                     # Last chunk has all the information we need if we don't want to actually stream
                     mm_response = response_chunks[-1]
