@@ -185,16 +185,29 @@ class AssistantResponse:
     capabilities_used: List[Capability]
     response: str
     timings: str
-    image: str | None = None
-    stream_finished: bool = True    # for streaming versions, indicates final response chunk
+    image: str
+    stream_finished: bool   # for streaming versions, indicates final response chunk
 
     @staticmethod
-    def error_response(message: str) -> AssistantResponse:
+    def _error_response(message: str) -> AssistantResponse:
+        """
+        Generates an error response intended as a tool output.
+
+        Parameters
+        ----------
+        message : str
+            Error message, intended to be consumed by LLM tool completion pass.
+
+        Returns
+        -------
+        AssistantResponse
+            AssistantResponse object.
+        """
         return AssistantResponse(
             token_usage_by_model={},    # TODO
             capabilities_used=[],
             response=message,
-            timings="", #TODO
+            timings={},
             image="",
             stream_finished=True
         )
@@ -275,11 +288,12 @@ class NewAssistant:
         tool_calls = initial_response_message.tool_calls
         if not tool_calls or len(tool_calls) == 0:
             # Return initial assistant response
+            t_end = timeit.default_timer()
             yield AssistantResponse(
                 token_usage_by_model=token_usage_by_model,
                 capabilities_used=[ Capability.ASSISTANT_KNOWLEDGE ],
                 response=initial_response.choices[0].message.content,
-                timings="",
+                timings={ "first_token": t_end - t_start, "total": t_end - t_start },
                 image="",
                 stream_finished=True
             )
@@ -325,10 +339,13 @@ class NewAssistant:
                 response_chunk: AssistantResponse = await asyncio.wait_for(output_stream.queue.get(), timeout=60)   # will throw on timeout, killing the request
                 if t_first is None:
                     t_first = timeit.default_timer()
+                if response_chunk.stream_finished:
+                    t_end = timeit.default_timer()
+                    response_chunk.timings = { "first_token": t_first - t_start, "total": t_end - t_start }
                 yield response_chunk
                 if response_chunk.stream_finished:
                     break
-            t_end = timeit.default_timer()
+            
             print("")
             print(f"Timings")
             print(f"-------")
@@ -389,7 +406,7 @@ class NewAssistant:
                     token_usage_by_model=token_usage_by_model,
                     capabilities_used=[],
                     response="".join(accumulated_response),
-                    timings="",
+                    timings={},
                     image="",
                     stream_finished=True
                 )
@@ -403,7 +420,7 @@ class NewAssistant:
                         token_usage_by_model={},
                         capabilities_used=[],
                         response=response_chunk,
-                        timings="",
+                        timings={},
                         image="",
                         stream_finished=False
                     )
@@ -504,7 +521,7 @@ class NewAssistant:
     @staticmethod
     def _create_error_stream(queue: asyncio.Queue, message: str) -> Stream:
         # For failed tool calls, just create a dummy stream that outputs an error response
-        queue.put_nowait(AssistantResponse.error_response(message=message))
+        queue.put_nowait(AssistantResponse._error_response(message=message))
     
     async def _handle_general_knowledge_tool(
         self,
@@ -531,7 +548,7 @@ class NewAssistant:
             token_usage_by_model={},
             capabilities_used=[ Capability.ASSISTANT_KNOWLEDGE ],
             response="",
-            timings="",
+            timings={},
             image="",
             stream_finished=True
         )
@@ -585,7 +602,7 @@ class NewAssistant:
                     token_usage_by_model=token_usage_by_model,
                     capabilities_used=[ Capability.VISION ],
                     response="".join(accumulated_response),
-                    timings="",
+                    timings={},
                     image="",
                     stream_finished=True
                 )
@@ -599,7 +616,7 @@ class NewAssistant:
                         token_usage_by_model={},
                         capabilities_used=[],
                         response=content_chunk,
-                        timings="",
+                        timings={},
                         image="",
                         stream_finished=False
                     )

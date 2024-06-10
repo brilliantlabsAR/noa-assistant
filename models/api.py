@@ -61,19 +61,11 @@ class MultimodalRequest(BaseModel):
     messages: Optional[List[Message]]
     prompt: Optional[str] = ""
     noa_system_prompt: Optional[str] = None
-    assistant: Optional[str] = None         # assistant class: gpt, claude, perplexity, groq
-    assistant_model: Optional[str] = None   # specific model for the assistant class
-    search_api: Optional[SearchAPI] = None
-    search_engine: Optional[SearchEngine] = SearchEngine.GOOGLE
-    max_search_results: Optional[int] = 10
     local_time: Optional[str] = None
     address: Optional[str] = None
     latitude: Optional[str] = None
     longitude: Optional[str] = None
-    vision: Optional[VisionModel] = None,
-    speculative_vision: Optional[bool] = True
     generate_image_service: Optional[GenerateImageService] = GenerateImageService.REPLICATE
-    testing_mode: Optional[bool] = False
 
 class MultimodalResponse(BaseModel):
     user_prompt: str
@@ -81,8 +73,7 @@ class MultimodalResponse(BaseModel):
     image: str
     token_usage_by_model: Dict[str, TokenUsage]
     capabilities_used: List[Capability]
-    timings: str
-    debug_tools: str
+    timings: Dict[str, float]
     stream_finished: bool = True
 
 class ExtractLearnedContextRequest(BaseModel):

@@ -110,7 +110,6 @@ async def assistant_response_generator(
             token_usage_by_model=assistant_response_chunk.token_usage_by_model,
             capabilities_used=assistant_response_chunk.capabilities_used,
             timings=assistant_response_chunk.timings,
-            debug_tools="",
             stream_finished=assistant_response_chunk.stream_finished
         )
         i += 1
@@ -172,11 +171,7 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
                 image=assistant_response.image,
                 token_usage_by_model=assistant_response.token_usage_by_model,
                 capabilities_used=assistant_response.capabilities_used,
-                total_tokens=0,
-                input_tokens=0,
-                output_tokens=0,
-                timings=assistant_response.timings,
-                debug_tools=assistant_response.debug_tools
+                timings=assistant_response.timings
             )
         except Exception as e:
             print(f"{traceback.format_exc()}")

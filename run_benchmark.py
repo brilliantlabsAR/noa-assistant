@@ -135,13 +135,12 @@ class ReportGenerator:
         user_column = self._escape(user_message.text)
         assistant_column = self._escape(assistant_response)
         image_column = f"<img src=\"{user_message.image}\" alt=\"image\" style=\"width:200px;\"/>" if user_message.image is not None else ""
-        debug_column = f"```{response.debug_tools}```"
+        debug_column = f"``` ```"   # Note: debug tool logging has been removed for now
         self._fp.write(f"|{passed_column}|{user_column}|{assistant_column}|{image_column}|{debug_column}|\n")
 
         # Timings
         try:
-            timings = json.loads(response.timings)
-            self._total_times.append(float(timings["total_time"]))
+            self._total_times.append(float(response.timings["total_time"]))
         except:
             pass
 
@@ -322,6 +321,7 @@ if __name__ == "__main__":
                     print(f"User: {user_message.text}" + (f" ({user_message.image})" if user_message.image else ""))
                     print(f"Response: {assistant_response}")
                     print(f"Tokens: {mm_response.token_usage_by_model}")
+                    print(f"Timings: {mm_response.timings}")
                     print(f"Capabilities: {mm_response.capabilities_used}")
                     print(f"Test: {test_result}")
                     print("")
