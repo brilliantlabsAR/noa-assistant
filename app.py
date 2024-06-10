@@ -20,7 +20,7 @@ from fastapi.exceptions import HTTPException
 from fastapi.encoders import jsonable_encoder
 
 from models import Message, MultimodalRequest, MultimodalResponse
-from vision.utils import process_image
+from util import process_image
 from assistant import NewAssistant
 
 
