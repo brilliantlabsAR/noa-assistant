@@ -160,7 +160,8 @@ def accumulate_token_usage(token_usage_by_model: Dict[str, TokenUsage], usage: C
 @dataclass
 class Stream:
     task: asyncio.Task[Any]
-    queue: asyncio.Queue    # output streamed here
+    queue: asyncio.Queue        # output streamed here
+    safe_for_final_output: bool # safe to output directly as assistant response?
 
     async def get_final_output(self):
         """
@@ -323,7 +324,7 @@ class NewAssistant:
 
                 # If multiple output streams, we have to invoke the LLM again in order to produce a
                 # coherent response. Otherwise, we can stream out the single tool output directly.
-                if len(tool_streams) != 1:
+                if len(tool_streams) != 1 or not tool_streams[0].safe_for_final_output:
                     output_stream = await self._complete_tool_response(
                         token_usage_by_model=token_usage_by_model,
                         messages=messages,
@@ -384,7 +385,8 @@ class NewAssistant:
         queue = asyncio.Queue()
         return Stream(
             task=asyncio.create_task(self._handle_tool_completion(token_usage_by_model=token_usage_by_model, queue=queue, messages=messages)),
-            queue=queue
+            queue=queue,
+            safe_for_final_output=True
         )
     
     async def _handle_tool_completion(self, queue: asyncio.Queue, token_usage_by_model: Dict[str, TokenUsage], messages: List[Message]):
@@ -487,6 +489,9 @@ class NewAssistant:
             DUMMY_SEARCH_TOOL_NAME: self._handle_general_knowledge_tool
         }
 
+        # Tool outputs that cannot be streamed out as the final assistant response
+        tools_unsafe_for_terminal_use = [ DUMMY_SEARCH_TOOL_NAME ]
+
         # Create a queue for the tool to send output chunks to
         queue = asyncio.Queue()
 
@@ -495,13 +500,15 @@ class NewAssistant:
             print(f"Error: Hallucinated tool: {tool_call.function.name}")
             return Stream(
                 task=asyncio.create_task(self._create_error_stream(queue=queue, message="Error: you hallucinated a tool that doesn't exist. Tell user you had trouble interpreting the request and ask them to rephrase it.")),
-                queue=queue
+                queue=queue,
+                safe_for_final_output=False
             )
         args: Dict[str, Any] | None = self._validate_tool_args(tool_call=tool_call)
         if args is None:
             return Stream(
                 task=asyncio.create_task(self._create_error_stream(queue=queue, message="Error: you failed to use a required parameter. Tell user you had trouble interpreting the request and ask them to rephrase it.")),
-                queue=queue
+                queue=queue,
+                safe_for_final_output=False
             )
 
         # Fill in common parameters to all tools
@@ -514,9 +521,10 @@ class NewAssistant:
         args["local_time"] = local_time
 
         # Create a task and stream, invoking the tool as a task
-        tool_function = tool_functions_by_name[tool_call.function.name]
+        tool_name = tool_call.function.name
+        tool_function = tool_functions_by_name[tool_name]
         task = asyncio.create_task(tool_function(**args))
-        return Stream(task=task, queue=queue)
+        return Stream(task=task, queue=queue, safe_for_final_output=tool_name not in tools_unsafe_for_terminal_use)
     
     @staticmethod
     def _create_error_stream(queue: asyncio.Queue, message: str) -> Stream:
