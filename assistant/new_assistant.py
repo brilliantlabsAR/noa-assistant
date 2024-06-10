@@ -172,7 +172,6 @@ class Stream:
 class NewAssistant:
     def __init__(self, client: openai.AsyncOpenAI):
         self._client = client
-        #self._web_search = WebSearch()  #TODO
     
     async def send_to_assistant(
         self,
@@ -183,6 +182,36 @@ class NewAssistant:
         location_address: str | None,
         local_time: str | None
     ):
+        """
+        Sends a message from user to assistant.
+
+        Parameters
+        ----------
+        prompt : str
+            User message.
+        flavor_prompt : str | None
+            Optional flavor prompt to append to system messages to give the assistant personality or
+            allow for user customization.
+        image_bytes : bytes | None
+            Image of what user is looking at.
+        message_history : List[Mesage] | None
+            Conversation history, excluding current user message we will run inference on.
+        location_address : str | None
+            User's current location, specified as a full or partial address. This provides context
+            to the LLM and is especially useful for web searches. E.g.,
+            "3985 Stevens Creek Blvd, Santa Clara, CA 95051".
+        local_time : str | None
+            User's local time in a human-readable format, which helps the LLM answer questions where
+            the user indirectly references the date or time. E.g.,
+            "Saturday, March 30, 2024, 1:21 PM".
+
+        Yields
+        ------
+        AssistantResponse
+            Assistant response (text and some required analytics). Partial responses are denoted
+            with stream_finished set to False. The final response, with stream_finished=True,
+            contains the full accumulated response with metrics.
+        """
         t_start = timeit.default_timer()
 
         message_history = self._truncate_message_history(message_history=message_history) if message_history else []
