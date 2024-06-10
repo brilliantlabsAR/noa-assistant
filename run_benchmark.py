@@ -321,7 +321,7 @@ if __name__ == "__main__":
 
                     print(f"User: {user_message.text}" + (f" ({user_message.image})" if user_message.image else ""))
                     print(f"Response: {assistant_response}")
-                    print(f"Tools: {mm_response.debug_tools}")
+                    print(f"Tokens: {mm_response.token_usage_by_model}")
                     print(f"Capabilities: {mm_response.capabilities_used}")
                     print(f"Test: {test_result}")
                     print("")

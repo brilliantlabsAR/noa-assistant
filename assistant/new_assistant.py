@@ -21,10 +21,18 @@ from typing import Any, Dict, List
 
 import openai
 from openai.types.chat import ChatCompletionMessageToolCall
+from openai.types.completion_usage import CompletionUsage
 
 from models import Message, Capability, TokenUsage
-from models import Role, Message, Capability, TokenUsage, accumulate_token_usage
+from models import Role, Message, Capability, TokenUsage
 from util import detect_media_type
+
+
+####################################################################################################
+# GPT Configuration
+####################################################################################################
+
+MODEL = "gpt-4o"
 
 
 ####################################################################################################
@@ -129,6 +137,45 @@ tool_function_names = [ tool["function"]["name"] for tool in TOOLS ]
 
 
 ####################################################################################################
+# Token Accounting
+####################################################################################################
+
+def accumulate_token_usage(token_usage_by_model: Dict[str, TokenUsage], usage: CompletionUsage):
+    token_usage = TokenUsage(input=usage.prompt_tokens, output=usage.completion_tokens, total=usage.total_tokens)
+    if MODEL not in token_usage_by_model:
+        token_usage_by_model[MODEL] = token_usage
+    else:
+        token_usage_by_model[MODEL].add(token_usage=token_usage)
+
+
+####################################################################################################
+# Stream
+#
+# A stream is a queue of AssistantResponse objects produced by a task (either a tool or the final
+# assistant LLM call). A "terminal" stream is one that can safely be streamed out as the final 
+# assistant response. Many tools are capable of serving as a shortcut to the final assistant
+# response.
+####################################################################################################
+
+@dataclass
+class Stream:
+    task: asyncio.Task[Any]
+    queue: asyncio.Queue    # output streamed here
+
+    async def get_final_output(self):
+        """
+        Returns
+        -------
+        Any
+            Waits for the final AssistantResponse output of the queue. Assumes the task is running. 
+        """
+        while True:
+            response_chunk: AssistantResponse = await asyncio.wait_for(self.queue.get(), timeout=60)
+            if response_chunk.stream_finished:  # final cumulative response
+                return response_chunk
+
+
+####################################################################################################
 # Assistant
 ####################################################################################################
 
@@ -151,23 +198,6 @@ class AssistantResponse:
             image="",
             stream_finished=True
         )
-
-@dataclass
-class Stream:
-    task: asyncio.Task[Any]
-    queue: asyncio.Queue    # output streamed here
-
-    async def get_final_output(self):
-        """
-        Returns
-        -------
-        Any
-            Waits for the final AssistantResponse output of the queue. Assumes the task is running. 
-        """
-        while True:
-            response_chunk: AssistantResponse = await asyncio.wait_for(self.queue.get(), timeout=60)
-            if response_chunk.stream_finished:  # final cumulative response
-                return response_chunk
 
 class NewAssistant:
     def __init__(self, client: openai.AsyncOpenAI):
@@ -213,6 +243,7 @@ class NewAssistant:
             contains the full accumulated response with metrics.
         """
         t_start = timeit.default_timer()
+        token_usage_by_model: Dict[str, TokenUsage] = {}
 
         message_history = self._truncate_message_history(message_history=message_history) if message_history else []
         messages = self._insert_system_message(messages=message_history, system_message=SYSTEM_MESSAGE)
@@ -231,11 +262,12 @@ class NewAssistant:
         )
 
         initial_response = await self._client.chat.completions.create(
-            model="gpt-4o",
+            model=MODEL,
             messages=messages,
             tools=TOOLS,
             tool_choice="auto"
         )
+        accumulate_token_usage(token_usage_by_model=token_usage_by_model, usage=initial_response.usage)
         initial_response_message = initial_response.choices[0].message
 
         # Determine final output: initial assistant response, one of the speculative tool call 
@@ -244,7 +276,7 @@ class NewAssistant:
         if not tool_calls or len(tool_calls) == 0:
             # Return initial assistant response
             yield AssistantResponse(
-                token_usage_by_model={},    # TODO
+                token_usage_by_model=token_usage_by_model,
                 capabilities_used=[ Capability.ASSISTANT_KNOWLEDGE ],
                 response=initial_response.choices[0].message.content,
                 timings="",
@@ -265,6 +297,7 @@ class NewAssistant:
                 messages.append(initial_response_message)
                 #TODO: use speculative tools if possible
                 tool_streams = await self._handle_tools(
+                    token_usage_by_model=token_usage_by_model,
                     stream_by_tool_name=stream_by_tool_name,
                     tool_calls=tool_calls,
                     flavor_prompt=flavor_prompt,
@@ -277,7 +310,12 @@ class NewAssistant:
                 # If multiple output streams, we have to invoke the LLM again in order to produce a
                 # coherent response. Otherwise, we can stream out the single tool output directly.
                 if len(tool_streams) != 1:
-                    output_stream = await self._complete_tool_response(messages=messages, tool_calls=tool_calls, tool_streams=tool_streams)
+                    output_stream = await self._complete_tool_response(
+                        token_usage_by_model=token_usage_by_model,
+                        messages=messages,
+                        tool_calls=tool_calls,
+                        tool_streams=tool_streams
+                    )
                 else:
                     output_stream = tool_streams[0]
             
@@ -303,6 +341,7 @@ class NewAssistant:
 
     async def _complete_tool_response(
         self,
+        token_usage_by_model: Dict[str, TokenUsage],
         messages: List[Message],
         tool_calls: List[ChatCompletionMessageToolCall],
         tool_streams: List[Stream]
@@ -327,14 +366,14 @@ class NewAssistant:
         # Create task to make second call to LLM (with tool responses) and stream into output queue
         queue = asyncio.Queue()
         return Stream(
-            task=asyncio.create_task(self._handle_tool_completion(queue=queue, messages=messages)),
+            task=asyncio.create_task(self._handle_tool_completion(token_usage_by_model=token_usage_by_model, queue=queue, messages=messages)),
             queue=queue
         )
     
-    async def _handle_tool_completion(self, queue: asyncio.Queue, messages: List[Message]):
+    async def _handle_tool_completion(self, queue: asyncio.Queue, token_usage_by_model: Dict[str, TokenUsage], messages: List[Message]):
         # Second LLM call
         stream = await self._client.chat.completions.create(
-            model="gpt-4o",
+            model=MODEL,
             messages=messages,
             stream=True,
             stream_options={ "include_usage": True }
@@ -345,8 +384,9 @@ class NewAssistant:
         async for chunk in stream:
             if len(chunk.choices) == 0:
                 # Final chunk has usage. We also return the complete, accumulated response here.
+                accumulate_token_usage(token_usage_by_model=token_usage_by_model, usage=chunk.usage)
                 response = AssistantResponse(
-                    token_usage_by_model={},
+                    token_usage_by_model=token_usage_by_model,
                     capabilities_used=[],
                     response="".join(accumulated_response),
                     timings="",
@@ -379,6 +419,7 @@ class NewAssistant:
         
     async def _handle_tools(
         self,
+        token_usage_by_model: Dict[str, TokenUsage],
         stream_by_tool_name: Dict[str, Stream],
         tool_calls: List[ChatCompletionMessageToolCall],
         flavor_prompt: str | None,
@@ -401,6 +442,7 @@ class NewAssistant:
             tool_name = tool_call.function.name
             if tool_name not in stream_by_tool_name:
                 stream_by_tool_name[tool_name] = self._create_tool_call(
+                    token_usage_by_model=token_usage_by_model,
                     tool_call=tool_call,
                     flavor_prompt=flavor_prompt,
                     message_history=message_history,
@@ -414,6 +456,7 @@ class NewAssistant:
 
     def _create_tool_call(
         self,
+        token_usage_by_model: Dict[str, TokenUsage],
         tool_call: ChatCompletionMessageToolCall,
         flavor_prompt: str | None,
         message_history: List[Message],
@@ -446,6 +489,7 @@ class NewAssistant:
 
         # Fill in common parameters to all tools
         args["queue"] = queue
+        args["token_usage_by_model"] = token_usage_by_model
         args["flavor_prompt"] = flavor_prompt
         args["message_history"] = message_history
         args["image_bytes"] = image_bytes
@@ -465,6 +509,7 @@ class NewAssistant:
     async def _handle_general_knowledge_tool(
         self,
         queue: asyncio.Queue,
+        token_usage_by_model: Dict[str, TokenUsage],
         query: str,
         flavor_prompt: str | None,
         message_history: List[Message],
@@ -494,8 +539,9 @@ class NewAssistant:
     
     async def _handle_photo_tool(
         self,
-        query: str,
         queue: asyncio.Queue,
+        token_usage_by_model: Dict[str, TokenUsage],
+        query: str,
         flavor_prompt: str | None,
         message_history: List[Message],
         image_bytes: bytes | None,
@@ -524,7 +570,7 @@ class NewAssistant:
 
         # Call GPT
         stream = await self._client.chat.completions.create(
-            model="gpt-4o",
+            model=MODEL,
             messages=messages,
             #max_tokens=4096,
             stream=True,
@@ -534,8 +580,9 @@ class NewAssistant:
         async for chunk in stream:
             if len(chunk.choices) == 0:
                 # Final chunk has usage
+                accumulate_token_usage(token_usage_by_model=token_usage_by_model, usage=chunk.usage)
                 response_chunk = AssistantResponse(
-                    token_usage_by_model={},
+                    token_usage_by_model=token_usage_by_model,
                     capabilities_used=[ Capability.VISION ],
                     response="".join(accumulated_response),
                     timings="",
