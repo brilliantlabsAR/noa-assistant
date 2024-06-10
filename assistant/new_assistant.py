@@ -1,5 +1,3 @@
-#TODO NEXT: Cannot stream single tool output directly in case of dummy knowledge tool!
-
 #
 # new_assistant.py
 #
@@ -8,10 +6,9 @@
 # TODO:
 # -----
 # - Image generation
-# - Token use by model
+# - Speculative tools
 #
 
-from __future__ import annotations
 import asyncio
 import base64
 from dataclasses import dataclass
@@ -23,8 +20,9 @@ import openai
 from openai.types.chat import ChatCompletionMessageToolCall
 from openai.types.completion_usage import CompletionUsage
 
-from models import Message, Capability, TokenUsage
-from models import Role, Message, Capability, TokenUsage
+from .response import AssistantResponse
+from .web_search_tool import WebSearchTool
+from models import Capability, Message, Role, TokenUsage
 from util import detect_media_type
 
 
@@ -96,23 +94,23 @@ TOOLS = [
             },
         },
     },
-    # {
-    #     "type": "function",
-    #     "function": {
-    #         "name": SEARCH_TOOL_NAME,
-    #         "description": """Up-to-date information on news, retail products, current events, local conditions, and esoteric knowledge""",
-    #         "parameters": {
-    #             "type": "object",
-    #             "properties": {
-    #                 QUERY_PARAM_NAME: {
-    #                     "type": "string",
-    #                     "description": "search query",
-    #                 },
-    #             },
-    #             "required": [ QUERY_PARAM_NAME ]
-    #         },
-    #     },
-    # },
+    {
+        "type": "function",
+        "function": {
+            "name": SEARCH_TOOL_NAME,
+            "description": """Up-to-date information on news, retail products, current events, local conditions, and esoteric knowledge""",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    QUERY_PARAM_NAME: {
+                        "type": "string",
+                        "description": "search query",
+                    },
+                },
+                "required": [ QUERY_PARAM_NAME ]
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
@@ -180,42 +178,10 @@ class Stream:
 # Assistant
 ####################################################################################################
 
-@dataclass
-class AssistantResponse:
-    token_usage_by_model: Dict[str, TokenUsage]
-    capabilities_used: List[Capability]
-    response: str
-    timings: str
-    image: str
-    stream_finished: bool   # for streaming versions, indicates final response chunk
-
-    @staticmethod
-    def _error_response(message: str) -> AssistantResponse:
-        """
-        Generates an error response intended as a tool output.
-
-        Parameters
-        ----------
-        message : str
-            Error message, intended to be consumed by LLM tool completion pass.
-
-        Returns
-        -------
-        AssistantResponse
-            AssistantResponse object.
-        """
-        return AssistantResponse(
-            token_usage_by_model={},    # TODO
-            capabilities_used=[],
-            response=message,
-            timings={},
-            image="",
-            stream_finished=True
-        )
-
 class NewAssistant:
-    def __init__(self, client: openai.AsyncOpenAI):
+    def __init__(self, client: openai.AsyncOpenAI, perplexity_api_key: str):
         self._client = client
+        self._web_tool = WebSearchTool(api_key=perplexity_api_key)
     
     async def send_to_assistant(
         self,
@@ -258,9 +224,11 @@ class NewAssistant:
         """
         t_start = timeit.default_timer()
         token_usage_by_model: Dict[str, TokenUsage] = {}
+        timings: Dict[str, float] = {}
 
-        message_history = self._truncate_message_history(message_history=message_history) if message_history else []
-        messages = self._insert_system_message(messages=message_history, system_message=SYSTEM_MESSAGE)
+        message_history = message_history if message_history else []
+        truncated_message_history = self._truncate_message_history(message_history=message_history)
+        messages = self._insert_system_message(messages=truncated_message_history, system_message=SYSTEM_MESSAGE)
         messages = self._insert_user_message(messages=messages, user_prompt=prompt)
         messages = self._inject_extra_context(
             messages=messages,
@@ -290,11 +258,13 @@ class NewAssistant:
         if not tool_calls or len(tool_calls) == 0:
             # Return initial assistant response
             t_end = timeit.default_timer()
+            timings["first_token"] = t_end - t_start
+            timings["total"] = t_end - t_start
             yield AssistantResponse(
                 token_usage_by_model=token_usage_by_model,
                 capabilities_used=[ Capability.ASSISTANT_KNOWLEDGE ],
                 response=initial_response.choices[0].message.content,
-                timings={ "first_token": t_end - t_start, "total": t_end - t_start },
+                timings=timings,
                 image="",
                 stream_finished=True
             )
@@ -313,6 +283,7 @@ class NewAssistant:
                 #TODO: use speculative tools if possible
                 tool_streams = await self._handle_tools(
                     token_usage_by_model=token_usage_by_model,
+                    timings=timings,
                     stream_by_tool_name=stream_by_tool_name,
                     tool_calls=tool_calls,
                     flavor_prompt=flavor_prompt,
@@ -327,6 +298,7 @@ class NewAssistant:
                 if len(tool_streams) != 1 or not tool_streams[0].safe_for_final_output:
                     output_stream = await self._complete_tool_response(
                         token_usage_by_model=token_usage_by_model,
+                        timings=timings,
                         messages=messages,
                         tool_calls=tool_calls,
                         tool_streams=tool_streams
@@ -342,7 +314,9 @@ class NewAssistant:
                     t_first = timeit.default_timer()
                 if response_chunk.stream_finished:
                     t_end = timeit.default_timer()
-                    response_chunk.timings = { "first_token": t_first - t_start, "total": t_end - t_start }
+                    timings["first_token"] = t_first - t_start
+                    timings["total"] = t_end - t_start
+                    response_chunk.timings = timings
                 yield response_chunk
                 if response_chunk.stream_finished:
                     break
@@ -360,6 +334,7 @@ class NewAssistant:
     async def _complete_tool_response(
         self,
         token_usage_by_model: Dict[str, TokenUsage],
+        timings: Dict[str, float],
         messages: List[Message],
         tool_calls: List[ChatCompletionMessageToolCall],
         tool_streams: List[Stream]
@@ -384,12 +359,18 @@ class NewAssistant:
         # Create task to make second call to LLM (with tool responses) and stream into output queue
         queue = asyncio.Queue()
         return Stream(
-            task=asyncio.create_task(self._handle_tool_completion(token_usage_by_model=token_usage_by_model, queue=queue, messages=messages)),
+            task=asyncio.create_task(self._handle_tool_completion(token_usage_by_model=token_usage_by_model, timings=timings, queue=queue, messages=messages)),
             queue=queue,
             safe_for_final_output=True
         )
     
-    async def _handle_tool_completion(self, queue: asyncio.Queue, token_usage_by_model: Dict[str, TokenUsage], messages: List[Message]):
+    async def _handle_tool_completion(
+        self,
+        queue: asyncio.Queue,
+        token_usage_by_model: Dict[str, TokenUsage],
+        timings: Dict[str, float],
+        messages: List[Message]
+    ):
         # Second LLM call
         stream = await self._client.chat.completions.create(
             model=MODEL,
@@ -408,7 +389,7 @@ class NewAssistant:
                     token_usage_by_model=token_usage_by_model,
                     capabilities_used=[],
                     response="".join(accumulated_response),
-                    timings={},
+                    timings=timings,
                     image="",
                     stream_finished=True
                 )
@@ -439,6 +420,7 @@ class NewAssistant:
     async def _handle_tools(
         self,
         token_usage_by_model: Dict[str, TokenUsage],
+        timings: Dict[str, float],
         stream_by_tool_name: Dict[str, Stream],
         tool_calls: List[ChatCompletionMessageToolCall],
         flavor_prompt: str | None,
@@ -447,6 +429,11 @@ class NewAssistant:
         location_address: str | None,
         local_time: str | None
     ) -> List[Stream]:
+        """
+        NOTE: Token usage and timings are mutated. It is a bit confusing that we also attach them
+        to final responses in streams but this is so that the final response delivered to the client
+        (which can come from a tool stream) contains the latest updated values.
+        """
         # Tool names in the order that function calling requested them
         requested_tool_names = [ tool_call.function.name for tool_call in tool_calls ]
 
@@ -462,6 +449,7 @@ class NewAssistant:
             if tool_name not in stream_by_tool_name:
                 stream_by_tool_name[tool_name] = self._create_tool_call(
                     token_usage_by_model=token_usage_by_model,
+                    timings=timings,
                     tool_call=tool_call,
                     flavor_prompt=flavor_prompt,
                     message_history=message_history,
@@ -476,6 +464,7 @@ class NewAssistant:
     def _create_tool_call(
         self,
         token_usage_by_model: Dict[str, TokenUsage],
+        timings: Dict[str, float],
         tool_call: ChatCompletionMessageToolCall,
         flavor_prompt: str | None,
         message_history: List[Message],
@@ -484,7 +473,7 @@ class NewAssistant:
         local_time: str | None
     ) -> Stream:
         tool_functions_by_name = {
-            #SEARCH_TOOL_NAME: self._web_search.search_web,
+            SEARCH_TOOL_NAME: self._handle_web_search_tool,
             PHOTO_TOOL_NAME: self._handle_photo_tool,
             DUMMY_SEARCH_TOOL_NAME: self._handle_general_knowledge_tool
         }
@@ -514,6 +503,7 @@ class NewAssistant:
         # Fill in common parameters to all tools
         args["queue"] = queue
         args["token_usage_by_model"] = token_usage_by_model
+        args["timings"] = timings
         args["flavor_prompt"] = flavor_prompt
         args["message_history"] = message_history
         args["image_bytes"] = image_bytes
@@ -535,6 +525,7 @@ class NewAssistant:
         self,
         queue: asyncio.Queue,
         token_usage_by_model: Dict[str, TokenUsage],
+        timings: Dict[str, float],
         query: str,
         flavor_prompt: str | None,
         message_history: List[Message],
@@ -566,6 +557,7 @@ class NewAssistant:
         self,
         queue: asyncio.Queue,
         token_usage_by_model: Dict[str, TokenUsage],
+        timings: Dict[str, float],
         query: str,
         flavor_prompt: str | None,
         message_history: List[Message],
@@ -573,8 +565,11 @@ class NewAssistant:
         location_address: str | None,
         local_time: str | None
     ):
+        t_start = timeit.default_timer()
+
         # Create messages for GPT w/ image. We can reuse our system prompt here.
-        messages = self._insert_system_message(messages=message_history, system_message=VISION_SYSTEM_MESSAGE)
+        messages = self._truncate_message_history(message_history=message_history)
+        messages = self._insert_system_message(messages=messages, system_message=VISION_SYSTEM_MESSAGE)
         user_message = {
             "role": "user",
             "content": [
@@ -602,15 +597,21 @@ class NewAssistant:
             stream_options={ "include_usage": True }
         )
         accumulated_response = []
+        t_first = None
         async for chunk in stream:
+            if t_first is None:
+                t_first = timeit.default_timer()
             if len(chunk.choices) == 0:
                 # Final chunk has usage
                 accumulate_token_usage(token_usage_by_model=token_usage_by_model, usage=chunk.usage)
+                t_end = timeit.default_timer()
+                timings["vision_first"] = t_first - t_start
+                timings["vision_total"] = t_end - t_start
                 response_chunk = AssistantResponse(
                     token_usage_by_model=token_usage_by_model,
                     capabilities_used=[ Capability.VISION ],
                     response="".join(accumulated_response),
-                    timings={},
+                    timings=timings,
                     image="",
                     stream_finished=True
                 )
@@ -629,6 +630,28 @@ class NewAssistant:
                         stream_finished=False
                     )
                     await queue.put(response_chunk)
+    
+    async def _handle_web_search_tool(
+        self,
+        queue: asyncio.Queue,
+        token_usage_by_model: Dict[str, TokenUsage],
+        timings: Dict[str, float],
+        query: str,
+        flavor_prompt: str | None,
+        message_history: List[Message],
+        image_bytes: bytes | None,
+        location_address: str | None,
+        local_time: str | None
+    ):
+        async for response_chunk in self._web_tool.search_web(
+            token_usage_by_model=token_usage_by_model,
+            timings=timings,
+            query=query,
+            message_history=message_history,
+            location=location_address
+        ):
+            await queue.put(response_chunk)
+
 
     @staticmethod
     def _validate_tool_args(tool_call: ChatCompletionMessageToolCall) -> Dict[str, Any]:

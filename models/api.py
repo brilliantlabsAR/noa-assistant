@@ -28,32 +28,6 @@ class Capability(str, Enum):
     REVERSE_IMAGE_SEARCH = "reverse_image_search"
     IMAGE_GENERATION = "image_generation"
 
-class SearchEngine(str, Enum):
-    GOOGLE_REVERSE_IMAGE = "google_reverse_image"
-    GOOGLE_LENS = "google_lens"
-    GOOGLE = "google"
-    GOOGLE_JOBS = "google_jobs"
-    GOOGLE_NEWS = "google_news"
-    GOOGLE_SHOPPING = "google_shopping"
-    GOOGLE_TRAVEL = "google_travel"
-    GOOGLE_LOCAL = "google_local"
-    GOOGLE_IMERSIVE_PRODUCT = "google_immersive_product"
-    GOOGLE_FINANCE = "google_finance"
-    GOOGLE_EVENTS = "google_events"
-    GOOGLE_SCHOLAR = "google_scholar"
-
-class SearchAPI(Enum):
-    SERP = "serp"
-    DATAFORSEO = "dataforseo"
-    PERPLEXITY = "perplexity"
-
-class VisionModel(str, Enum):
-    GPT4O = "gpt-4o"
-    GPT4Vision = "gpt-4-vision-preview"
-    CLAUDE_HAIKU = "claude-3-haiku-20240307"
-    CLAUDE_SONNET = "claude-3-sonnet-20240229"
-    CLAUDE_OPUS = "claude-3-opus-20240229"
-
 class GenerateImageService(str, Enum):
     REPLICATE   = "replicate"
 
@@ -75,11 +49,3 @@ class MultimodalResponse(BaseModel):
     capabilities_used: List[Capability]
     timings: Dict[str, float]
     stream_finished: bool = True
-
-class ExtractLearnedContextRequest(BaseModel):
-    messages: List[Message]
-    existing_learned_context: Dict[str, str]
-
-class ExtractLearnedContextResponse(BaseModel):
-    learned_context: Dict[str, str]
-    token_usage_by_model: Dict[str, TokenUsage]

@@ -250,5 +250,5 @@ if __name__ == "__main__":
     parser.add_argument("--location", action="store", default="San Francisco", help="Set location address used for all queries (e.g., \"San Francisco\")")
     options = parser.parse_args()
     app.state.openai_client = openai.AsyncOpenAI()
-    app.state.assistant = NewAssistant(client=app.state.openai_client)
+    app.state.assistant = NewAssistant(client=app.state.openai_client, perplexity_api_key=PERPLEXITY_API_KEY)
     uvicorn.run(app, host="0.0.0.0", port=int(EXPERIMENT_AI_PORT))
