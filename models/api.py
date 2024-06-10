@@ -81,9 +81,6 @@ class MultimodalResponse(BaseModel):
     image: str
     token_usage_by_model: Dict[str, TokenUsage]
     capabilities_used: List[Capability]
-    total_tokens: int
-    input_tokens: int
-    output_tokens: int
     timings: str
     debug_tools: str
     stream_finished: bool = True

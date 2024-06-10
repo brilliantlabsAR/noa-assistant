@@ -277,6 +277,7 @@ if __name__ == "__main__":
                         response_chunks = []
                         expecting_json_data = False
                         for line in response.iter_lines():
+                            print(line)
                             if line is not None:
                                 line = line.decode("utf-8")
                                 if expecting_json_data and line.startswith("data:"):
@@ -310,15 +311,12 @@ if __name__ == "__main__":
                     print(f"User: {user_message.text}" + (f" ({user_message.image})" if user_message.image else ""))
                     print(f"Response: {assistant_response}")
                     print(f"Tools: {mm_response.debug_tools}")
-                    #pct_out = float(content["output_tokens"]) / float(content["total_tokens"]) * 100.0
-                    #print(f"Tokens: in={content['input_tokens']}, out={content['output_tokens']} %out={pct_out:.0f}%")
+                    print(f"Capabilities: {mm_response.capabilities_used}")
                     print(f"Test: {test_result}")
                     print("")
                     report.add_result(user_message=user_message, response=mm_response, assistant_response=assistant_response, test_result=test_result)
 
                     total_user_prompts += 1
-                    total_tokens_in += mm_response.input_tokens
-                    total_tokens_out += mm_response.output_tokens
                     
                 except Exception as e:
                     print(f"Error: {e}")
@@ -336,7 +334,3 @@ if __name__ == "__main__":
 
     # Summary
     print(f"User messages: {total_user_prompts}")
-    print(f"Total input tokens: {total_tokens_in}")
-    print(f"Total output tokens: {total_tokens_out}")
-    print(f"Average input tokens: {total_tokens_in / total_user_prompts}")
-    print(f"Average output tokens: {total_tokens_out / total_user_prompts}")
