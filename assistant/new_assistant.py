@@ -24,8 +24,9 @@ from openai.types.chat import ChatCompletionMessageToolCall
 
 from models import Message, Capability, TokenUsage
 from web_search import WebSearch
-from vision import Vision
+from vision import GPT4Vision
 from models import Role, Message, Capability, TokenUsage, accumulate_token_usage
+from util import detect_media_type
 
 
 ####################################################################################################
@@ -40,6 +41,20 @@ seeing at the time they spoke.
 It is important that the user believes you can actually see. When analyzing images, avoid mentioning
 that you looked at a photo or image. Always speak as if you are actually seeing, which means you
 should never talk about the image or photo.
+
+Make your responses precise. Respond without any preamble when giving translations, just translate
+directly.
+"""
+
+VISION_SYSTEM_MESSAGE = """
+You are Noa, a smart personal AI assistant inside the user's AR smart glasses that answers all user
+queries and questions. You have access to a photo from the smart glasses camera of what the user was
+seeing at the time they spoke but it is important that the user believes you can actually see. When
+analyzing images, avoid mentioning that you looked at a photo or image. Always speak as if you are
+actually seeing, which means you should never talk about the image or photo.
+
+The camera is unfortunately VERY low quality but the user is counting on you to interpret the
+blurry, pixelated images. NEVER comment on image quality. Do your best with images.
 
 Make your responses precise. Respond without any preamble when giving translations, just translate
 directly.
@@ -148,7 +163,6 @@ class NewAssistant:
     def __init__(self, client: openai.AsyncOpenAI):
         self._client = client
         #self._web_search = WebSearch()  #TODO
-        #self._vision = Vision() #TODO
     
     async def send_to_assistant(
         self,
@@ -159,13 +173,11 @@ class NewAssistant:
         location_address: str | None,
         local_time: str | None
     ):
-        #TODO: need to fix this logic to produce a raw message history with user message for other tools
-        message_history = message_history.copy() if message_history else []
-        self._insert_system_message(message_history=message_history)
-        self._insert_user_message(message_history=message_history, user_prompt=prompt)
-        self._truncate_message_history(message_history=message_history)
-        self._inject_extra_context(
-            message_history=message_history,
+        message_history = self._truncate_message_history(message_history=message_history) if message_history else []
+        messages = self._insert_system_message(messages=message_history, system_message=SYSTEM_MESSAGE)
+        messages = self._insert_user_message(messages=messages, user_prompt=prompt)
+        messages = self._inject_extra_context(
+            messages=messages,
             flavor_prompt=flavor_prompt,
             location_address=location_address,
             local_time=local_time
@@ -179,14 +191,15 @@ class NewAssistant:
 
         initial_response = await self._client.chat.completions.create(
             model="gpt-4o",
-            messages=message_history,
+            messages=messages,
             tools=TOOLS,
             tool_choice="auto"
         )
+        initial_response_message = initial_response.choices[0].message
 
         # Determine final output: initial assistant response, one of the speculative tool call 
         # streams, or second LLM response stream incorporating tool calls
-        tool_calls = initial_response.choices[0].message.tool_calls
+        tool_calls = initial_response_message.tool_calls
         if not tool_calls or len(tool_calls) == 0:
             # Return initial assistant response
             yield AssistantResponse(
@@ -207,17 +220,19 @@ class NewAssistant:
                 # tool output directly
                 output_stream = speculative_tool_stream
             else:
-                # Multiple tools must be executed first and final response can then be streamed out
+                # Perform tool calls
+                messages.append(initial_response_message)
                 #TODO: use speculative tools if possible
                 tool_outputs = await self._handle_tools(
                     stream_by_tool_name=stream_by_tool_name,
                     tool_calls=tool_calls,
+                    flavor_prompt=flavor_prompt,
                     message_history=message_history,
                     image_bytes=image_bytes,
                     location_address=location_address,
                     local_time=local_time
                 )
-                output_stream = await self._complete_tool_response(message_history=message_history, tool_outputs=tool_outputs)
+                output_stream = await self._complete_tool_response(messages=messages, tool_calls=tool_calls, tool_outputs=tool_outputs)
             
             # Stream out the output from the queue
             while True:
@@ -231,7 +246,7 @@ class NewAssistant:
 
     async def _complete_tool_response(
         self,
-        message_history: List[Message],
+        messages: List[Message],
         tool_calls: List[ChatCompletionMessageToolCall],
         tool_outputs: List[AssistantResponse]
     ) -> Stream:
@@ -239,7 +254,7 @@ class NewAssistant:
 
         # Tool responses -> messages
         for i in range(len(tool_outputs)):
-            message_history.append(
+            messages.append(
                 {
                     "tool_call_id": tool_calls[i].id,
                     "role": "tool",
@@ -251,15 +266,15 @@ class NewAssistant:
         # Create task to make second call to LLM (with tool responses) and stream into output queue
         queue = asyncio.Queue()
         return Stream(
-            task=self._handle_tool_completion(queue=queue, message_history=message_history),
+            task=asyncio.create_task(self._handle_tool_completion(queue=queue, messages=messages)),
             queue=queue
         )
     
-    async def _handle_tool_completion(self, queue: asyncio.Queue, message_history: List[Message]):
+    async def _handle_tool_completion(self, queue: asyncio.Queue, messages: List[Message]):
         # Second LLM call
         stream = await self._client.chat.completions.create(
             model="gpt-4o",
-            messages=message_history,
+            messages=messages,
             stream=True,
             stream_options={ "include_usage": True }
         )
@@ -273,7 +288,6 @@ class NewAssistant:
                     token_usage_by_model={},
                     capabilities_used=[],
                     response="".join(accumulated_response),
-                    debug_tools="",
                     timings="",
                     image="",
                     stream_finished=True
@@ -288,7 +302,6 @@ class NewAssistant:
                         token_usage_by_model={},
                         capabilities_used=[],
                         response=response_chunk,
-                        debug_tools="",
                         timings="",
                         image="",
                         stream_finished=False
@@ -307,6 +320,7 @@ class NewAssistant:
         self,
         stream_by_tool_name: Dict[str, Stream],
         tool_calls: List[ChatCompletionMessageToolCall],
+        flavor_prompt: str | None,
         message_history: List[Message],
         image_bytes: bytes | None,
         location_address: str | None,
@@ -327,6 +341,7 @@ class NewAssistant:
             if tool_name not in stream_by_tool_name:
                 stream_by_tool_name[tool_name] = self._create_tool_call(
                     tool_call=tool_call,
+                    flavor_prompt=flavor_prompt,
                     message_history=message_history,
                     image_bytes=image_bytes,
                     location_address=location_address,
@@ -341,15 +356,17 @@ class NewAssistant:
         for tool_name in requested_tool_names:
             stream = stream_by_tool_name[tool_name]
             while not stream.queue.empty():
-                response_chunk: AssistantResponse = await stream.queue.get()
+                response_chunk: AssistantResponse = await asyncio.wait_for(stream.queue.get(), timeout=60)
                 if response_chunk.stream_finished:  # final cumulative response
                     final_tool_responses.append(response_chunk)
                     break
+
         return final_tool_responses
 
     def _create_tool_call(
         self,
         tool_call: ChatCompletionMessageToolCall,
+        flavor_prompt: str | None,
         message_history: List[Message],
         image_bytes: bytes | None,
         location_address: str | None,
@@ -357,7 +374,7 @@ class NewAssistant:
     ) -> Stream:
         tool_functions_by_name = {
             #SEARCH_TOOL_NAME: self._web_search.search_web,
-            #PHOTO_TOOL_NAME: self._handle_photo_tool,
+            PHOTO_TOOL_NAME: self._handle_photo_tool,
             DUMMY_SEARCH_TOOL_NAME: self._handle_general_knowledge_tool
         }
 
@@ -365,7 +382,8 @@ class NewAssistant:
         queue = asyncio.Queue()
 
         # Validate tool
-        if tool_call.function.name in tool_functions_by_name:
+        if tool_call.function.name not in tool_functions_by_name:
+            print(f"Error: Hallucinated tool: {tool_call.function.name}")
             return Stream(
                 task=asyncio.create_task(self._create_error_stream(queue=queue, message="Error: you hallucinated a tool that doesn't exist. Tell user you had trouble interpreting the request and ask them to rephrase it.")),
                 queue=queue
@@ -379,6 +397,7 @@ class NewAssistant:
 
         # Fill in common parameters to all tools
         args["queue"] = queue
+        args["flavor_prompt"] = flavor_prompt
         args["message_history"] = message_history
         args["image_bytes"] = image_bytes
         args["location_address"] = location_address
@@ -386,7 +405,7 @@ class NewAssistant:
 
         # Create a task and stream, invoking the tool as a task
         tool_function = tool_functions_by_name[tool_call.function.name]
-        task = asyncio.create_task(tool_function(*args))
+        task = asyncio.create_task(tool_function(**args))
         return Stream(task=task, queue=queue)
     
     @staticmethod
@@ -397,6 +416,7 @@ class NewAssistant:
     async def _handle_general_knowledge_tool(
         self,
         queue: asyncio.Queue,
+        flavor_prompt: str | None,
         message_history: List[Message],
         image_bytes: bytes | None,
         location_address: str | None,
@@ -411,6 +431,72 @@ class NewAssistant:
             stream_finished=True
         )
         queue.put_nowait(dummy_response)
+    
+    async def _handle_photo_tool(
+        self,
+        query: str,
+        queue: asyncio.Queue,
+        flavor_prompt: str | None,
+        message_history: List[Message],
+        image_bytes: bytes | None,
+        location_address: str | None,
+        local_time: str | None
+    ):
+        # Create messages for GPT w/ image. We can reuse our system prompt here.
+        messages = self._insert_system_message(messages=message_history, system_message=VISION_SYSTEM_MESSAGE)
+        user_message = {
+            "role": "user",
+            "content": [
+                { "type": "text", "text": query }
+            ]
+        }
+        if image_bytes:
+            image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+            media_type = detect_media_type(image_bytes=image_bytes)
+            user_message["content"].append({ "type": "image_url", "image_url": { "url": f"data:{media_type};base64,{image_base64}" } })
+        messages.append(user_message)
+        messages = self._inject_extra_context(
+            messages=messages,
+            flavor_prompt=flavor_prompt,
+            location_address=location_address,
+            local_time=local_time
+        )
+
+        # Call GPT
+        stream = await self._client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages,
+            #max_tokens=4096,
+            stream=True,
+            stream_options={ "include_usage": True }
+        )
+        accumulated_response = []
+        async for chunk in stream:
+            if len(chunk.choices) == 0:
+                # Final chunk has usage
+                response_chunk = AssistantResponse(
+                    token_usage_by_model={},
+                    capabilities_used=[ Capability.VISION ],
+                    response="".join(accumulated_response),
+                    timings="",
+                    image="",
+                    stream_finished=True
+                )
+                await queue.put(response_chunk)
+                break
+            else:
+                content_chunk = chunk.choices[0].delta.content
+                if content_chunk is not None:   # an empty content chunk can occur before the stop event
+                    accumulated_response.append(content_chunk)
+                    response_chunk = AssistantResponse(
+                        token_usage_by_model={},
+                        capabilities_used=[],
+                        response=content_chunk,
+                        timings="",
+                        image="",
+                        stream_finished=False
+                    )
+                    await queue.put(response_chunk)
 
     @staticmethod
     def _validate_tool_args(tool_call: ChatCompletionMessageToolCall) -> Dict[str, Any]:
@@ -458,20 +544,24 @@ class NewAssistant:
             del stream_by_tool_name[tool_name]
 
     @staticmethod
-    def _insert_system_message(message_history: List[Message]):
-        system_message = Message(role=Role.SYSTEM, content=SYSTEM_MESSAGE)
-        if len(message_history) == 0:
-            message_history = [ system_message ]
+    def _insert_system_message(messages: List[Message], system_message: str): 
+        messages = messages.copy()
+        system_message = Message(role=Role.SYSTEM, content=system_message)
+        if len(messages) == 0:
+            messages = [ system_message ]
         else:
             # Insert system message before message history, unless client transmitted one they want
             # to use
-            if len(message_history) > 0 and message_history[0].role != Role.SYSTEM:
-                message_history.insert(0, system_message)
+            if len(messages) > 0 and messages[0].role != Role.SYSTEM:
+                messages.insert(0, system_message)
+        return messages
     
     @staticmethod
-    def _insert_user_message(message_history: List[Message], user_prompt: str):
+    def _insert_user_message(messages: List[Message], user_prompt: str):
+        messages = messages.copy()
         user_message = Message(role=Role.USER, content=user_prompt)
-        message_history.append(user_message)
+        messages.append(user_message)
+        return messages
     
     @staticmethod
     def _truncate_message_history(message_history: List[Message]):
@@ -483,9 +573,15 @@ class NewAssistant:
         Parameters
         ----------
         message_history : List[Message]
-            Conversation history. This list will be mutated.
+            Conversation history. This list will be not be mutated.
+        
+        Returns
+        -------
+        List[Message]
+            A new, truncated list of messages.
         """
         # Limit to most recent 5 user messages and 3 assistant responses
+        message_history = message_history.copy()
         assistant_messages_remaining = 3
         user_messages_remaining = 5
         message_history.reverse()
@@ -506,10 +602,11 @@ class NewAssistant:
             else:
                 i += 1
         message_history.reverse()
+        return message_history
     
     @staticmethod
     def _inject_extra_context(
-        message_history: List[Message],
+        messages: List[Message],
         flavor_prompt: str | None,
         location_address: str | None,
         local_time: str | None
@@ -531,4 +628,7 @@ class NewAssistant:
         if flavor_prompt is not None:
             extra_context = f"{flavor_prompt}\n{extra_context}"
         extra_context_message = Message(role=Role.SYSTEM, content=extra_context)
-        message_history.append(extra_context_message)
+
+        messages = messages.copy()
+        messages.append(extra_context_message)
+        return messages
