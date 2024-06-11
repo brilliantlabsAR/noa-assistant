@@ -221,6 +221,12 @@ class NewAssistant:
             Assistant response (text and some required analytics). Partial responses are denoted
             with stream_finished set to False. The final response, with stream_finished=True,
             contains the full accumulated response with metrics.
+
+            That is, when stream_finished=False (for all but the last item), only the response field
+            should be read and it will contain partial text. After everything is streamed out, one
+            final AssistantReponse is returned with response set to the complete assembled output is
+            produced. The various other fields (image, token usage, timings, etc.) should all be 
+            taken from this final object.
         """
         t_start = timeit.default_timer()
         token_usage_by_model: Dict[str, TokenUsage] = {}
