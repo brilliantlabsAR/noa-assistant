@@ -257,6 +257,8 @@ class NewAssistant:
         )
         accumulate_token_usage(token_usage_by_model=token_usage_by_model, usage=initial_response.usage)
         initial_response_message = initial_response.choices[0].message
+        t_initial = timeit.default_timer()
+        timings["initial"] = t_initial - t_start
 
         # Determine final output: initial assistant response, one of the speculative tool call 
         # streams, or second LLM response stream incorporating tool calls
