@@ -639,7 +639,18 @@ class GPTAssistant(Assistant):
                         returned_response.debug_tools = json.dumps(tools_used)
                         returned_response.image = tool_outputs[i]
                         return returned_response
-                
+                    
+                # Web search shortcut: return response from Perplexity immediately if it was only
+                # tool invoked
+                if len(tool_outputs) == 1 and first_response_message.tool_calls[0].function.name == SEARCH_TOOL_NAME:
+                    t1 = timeit.default_timer()
+                    timings["total_time"] = f"{t1-tstart:.3f}"
+                    returned_response.response = tool_outputs[0]
+                    returned_response.debug_tools = json.dumps(tools_used)
+                    returned_response.timings = json.dumps(timings)
+                    returned_response.image = ""
+                    return returned_response
+
                 message_history.append(
                     {
                         "tool_call_id": first_response_message.tool_calls[i].id,

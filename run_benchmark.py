@@ -294,6 +294,7 @@ if __name__ == "__main__":
 
                     print(f"User: {user_message.text}" + (f" ({user_message.image})" if user_message.image else ""))
                     print(f"Response: {assistant_response}")
+                    print(f"Timings: {json.loads(mm_response.timings)}")
                     print(f"Tools: {mm_response.debug_tools}")
                     #pct_out = float(content["output_tokens"]) / float(content["total_tokens"]) * 100.0
                     #print(f"Tokens: in={content['input_tokens']}, out={content['output_tokens']} %out={pct_out:.0f}%")
