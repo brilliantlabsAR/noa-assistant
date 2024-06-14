@@ -102,6 +102,8 @@ def get_assistant(app, mm: MultimodalRequest) -> Tuple[Assistant, str | None]:
     # Return assistant and a valid model for it
     if mm.assistant == "gpt":
         assistant_model = validate_assistant_model(model=mm.assistant_model, models=[ "gpt-4o", "gpt-3.5-turbo-1106", "gpt-3.5-turbo", "gpt-4-turbo", "gpt-4-turbo-2024-04-09", "gpt-4-turbo-preview", "gpt-4-1106-preview" ])
+        if mm.openai_key and len(mm.openai_key) > 0:
+            return GPTAssistant(client=openai.AsyncOpenAI(api_key=mm.openai_key)), assistant_model
         return GPTAssistant(client=app.state.openai_client), assistant_model
     elif mm.assistant == "claude":
         assistant_model = validate_assistant_model(model=mm.assistant_model, models=[ "claude-3-sonnet-20240229", "claude-3-haiku-20240307", "claude-3-opus-20240229" ])
@@ -120,7 +122,9 @@ def get_web_search_provider(app, mm: MultimodalRequest) -> WebSearch:
     elif mm.search_api == SearchAPI.DATAFORSEO:
         return DataForSEOWebSearch(save_to_file=options.save, max_search_results=mm.max_search_results)
     elif mm.search_api == SearchAPI.PERPLEXITY:
-        return PerplexityWebSearch(api_key=PERPLEXITY_API_KEY)
+        if mm.perplexity_key and len(mm.perplexity_key) > 0:
+            return PerplexityWebSearch(api_key=mm.perplexity_key, max_search_results=mm.max_search_results)
+        return PerplexityWebSearch(api_key=PERPLEXITY_API_KEY, max_search_results=mm.max_search_results)
 
     # Default provider
     return app.state.web_search
@@ -158,7 +162,7 @@ def get_next_filename():
 async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFile = None, image: UploadFile = None):
     try:
         mm: MultimodalRequest = Checker(MultimodalRequest)(data=mm)
-        print(mm)
+        # print(mm)
 
         # Transcribe voice prompt if it exists
         voice_prompt = ""
@@ -171,7 +175,10 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
                 filepath = get_next_filename()
                 with open(filepath, "wb") as f:
                     f.write(audio_bytes)
-            voice_prompt = await transcribe(client=request.app.state.openai_client, audio_bytes=audio_bytes)
+            if mm.openai_key and len(mm.openai_key) > 0:
+                voice_prompt = await transcribe(client=openai.AsyncOpenAI(api_key=mm.openai_key), audio_bytes=audio_bytes)
+            else:
+                voice_prompt = await transcribe(client=request.app.state.openai_client, audio_bytes=audio_bytes)
 
 
         # Construct final prompt
