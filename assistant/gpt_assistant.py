@@ -70,38 +70,38 @@ IMAGE_GENERATION_PARAM_NAME = "description"
 QUERY_PARAM_NAME = "query"
 
 TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": DUMMY_SEARCH_TOOL_NAME,
-            "description": """Non-recent trivia and general knowledge""",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    QUERY_PARAM_NAME: {
-                        "type": "string",
-                        "description": "search query",
-                    },
-                },
-                "required": [ QUERY_PARAM_NAME ]
-            },
-        },
-    },
+    # {
+    #     "type": "function",
+    #     "function": {
+    #         "name": DUMMY_SEARCH_TOOL_NAME,
+    #         "description": """Non-recent trivia and general knowledge""",
+    #         "parameters": {
+    #             "type": "object",
+    #             "properties": {
+    #                 QUERY_PARAM_NAME: {
+    #                     "type": "string",
+    #                     "description": "search query",
+    #                 },
+    #             },
+    #             "required": [ QUERY_PARAM_NAME ]
+    #         },
+    #     },
+    # },
     {
         "type": "function",
         "function": {
             "name": SEARCH_TOOL_NAME,
             "description": """Up-to-date information on news, retail products, current events, local conditions, and esoteric knowledge""",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    QUERY_PARAM_NAME: {
-                        "type": "string",
-                        "description": "search query",
-                    },
-                },
-                "required": [ QUERY_PARAM_NAME ]
-            },
+            # "parameters": {
+            #     "type": "object",
+            #     "properties": {
+            #         QUERY_PARAM_NAME: {
+            #             "type": "string",
+            #             "description": "search query",
+            #         },
+            #     },
+            #     "required": [ QUERY_PARAM_NAME ]
+            # },
         },
     },
     {
@@ -110,16 +110,16 @@ TOOLS = [
             "name": PHOTO_TOOL_NAME,
             "description": """Analyzes or describes the photo you have from the user's current perspective.
 Use this tool if user refers to something not identifiable from conversation context, such as with a demonstrative pronoun.""",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    QUERY_PARAM_NAME: {
-                        "type": "string",
-                        "description": "User's query to answer, describing what they want answered, expressed as a command that NEVER refers to the photo or image itself"
-                    },
-                },
-                "required": [ QUERY_PARAM_NAME ]
-            },
+            # "parameters": {
+            #     "type": "object",
+            #     "properties": {
+            #         QUERY_PARAM_NAME: {
+            #             "type": "string",
+            #             "description": "User's query to answer, describing what they want answered, expressed as a command that NEVER refers to the photo or image itself"
+            #         },
+            #     },
+            #     "required": [ QUERY_PARAM_NAME ]
+            # },
         },
     },
     {
@@ -156,7 +156,8 @@ async def handle_tool(
     token_usage_by_model: Dict[str, TokenUsage],
     capabilities_used: List[Capability],
     tools_used: List[Dict[str, Any]],
-    timings: Dict[str, str]
+    timings: Dict[str, str],
+    extra_context: str|None
 ) -> str:
     tool_functions = {
         SEARCH_TOOL_NAME: web_search.search_web,                # returns WebSearchResult
@@ -183,7 +184,8 @@ async def handle_tool(
         vision=vision,
         learned_context=learned_context,
         token_usage_by_model=token_usage_by_model,
-        capabilities_used=capabilities_used
+        capabilities_used=capabilities_used,
+        extra_context=extra_context
     )
 
     tool_start_time = timeit.default_timer()
@@ -226,12 +228,13 @@ def prepare_tool_arguments(
     vision: Vision,
     learned_context: Dict[str, str] | None,
     token_usage_by_model: Dict[str, TokenUsage],
-    capabilities_used: List[Capability]
+    capabilities_used: List[Capability],
+    extra_context: str|None
 ) -> Dict[str, Any]:
     # Get function description we passed to GPT. This function should be called after we have
     # validated that a valid tool call was generated.
-    function_description = [ description for description in tools if description["function"]["name"] == tool_call.function.name ][0]
-    function_parameters = function_description["function"]["parameters"]["properties"]
+    # function_description = [ description for description in tools if description["function"]["name"] == tool_call.function.name ][0]
+    # function_parameters = function_description["function"]["parameters"]["properties"]
 
     # Parse arguments and ensure they are all str or bool for now. Drop any that aren't.
     args: Dict[str, Any] = {}
@@ -239,27 +242,27 @@ def prepare_tool_arguments(
         args = json.loads(tool_call.function.arguments)
     except:
         pass
-    for param_name in list(args.keys()):
-        if param_name not in function_parameters:
-            # GPT hallucinated a parameter
-            del args[param_name]
-            continue
-        if function_parameters[param_name]["type"] == "string" and type(args[param_name]) != str:
-            del args[param_name]
-            continue
-        if function_parameters[param_name]["type"] == "boolean" and type(args[param_name]) != bool:
-            del args[param_name]
-            continue
-        if function_parameters[param_name]["type"] not in [ "string", "boolean" ]:
-            # Need to keep this up to date with the tools we define
-            raise ValueError(f"Unsupported tool parameter type: {function_parameters[param_name]['type']}")
+    # for param_name in list(args.keys()):
+        # if param_name not in function_parameters:
+        #     # GPT hallucinated a parameter
+        #     del args[param_name]
+        #     continue
+        # if function_parameters[param_name]["type"] == "string" and type(args[param_name]) != str:
+        #     del args[param_name]
+        #     continue
+        # if function_parameters[param_name]["type"] == "boolean" and type(args[param_name]) != bool:
+        #     del args[param_name]
+        #     continue
+        # if function_parameters[param_name]["type"] not in [ "string", "boolean" ]:
+        #     # Need to keep this up to date with the tools we define
+        #     raise ValueError(f"Unsupported tool parameter type: {function_parameters[param_name]['type']}")
 
     # Fill in args required by all tools
     args["location"] = location if location else "unknown"
     args[QUERY_PARAM_NAME] = args[QUERY_PARAM_NAME] if QUERY_PARAM_NAME in args else user_message
     args["message_history"] = message_history
     args["token_usage_by_model"] = token_usage_by_model
-
+    args["extra_context"] = extra_context
     # Photo tool additional parameters we need to inject
     if tool_call.function.name == PHOTO_TOOL_NAME:
         args["image_bytes"] = image_bytes
@@ -268,6 +271,8 @@ def prepare_tool_arguments(
         args["local_time"] = local_time
         args["learned_context"] = learned_context
         args["capabilities_used"] = capabilities_used
+        args["message_history"] = message_history
+        args["query"] = user_message
     if tool_call.function.name == IMAGE_GENERATION_TOOL_NAME:
         args["image_bytes"] = image_bytes
 
@@ -281,6 +286,7 @@ async def handle_general_knowledge_tool(
     local_time: str | None = None,
     location: str | None = None,
     learned_context: Dict[str,str] | None = None,
+    extra_context: str | None = None
 ) -> str:
     """
     Dummy general knowledge tool that tricks GPT into generating an answer directly instead of
@@ -306,9 +312,10 @@ async def handle_photo_tool(
     image_bytes: bytes | None = None,
     local_time: str | None = None,
     location: str | None = None,
-    learned_context: Dict[str,str] | None = None
+    learned_context: Dict[str,str] | None = None,
+    extra_context: str | None = None
 ) -> str | WebSearchResult:
-    extra_context = "\n\n" + create_context_system_message(local_time=local_time, location=location, learned_context=learned_context)
+    # extra_context = "\n\n" + create_context_system_message(local_time=local_time, location=location, learned_context=learned_context)
 
     # If no image bytes (glasses always send image but web playgrounds do not), return an error
     # message for the assistant to use
@@ -321,6 +328,7 @@ async def handle_photo_tool(
     capabilities_used.append(Capability.VISION)
     output = await vision.query_image(
         query=query,
+        message_history=message_history,
         extra_context=extra_context,
         image_bytes=image_bytes,
         token_usage_by_model=token_usage_by_model
@@ -337,16 +345,18 @@ async def handle_photo_tool(
     # information came from. Web search will lack important vision information. We need to return
     # both and have the assistant figure out which info to use.
     capabilities_used.append(Capability.REVERSE_IMAGE_SEARCH if output.reverse_image_search else Capability.WEB_SEARCH)
+    extra_context += "\nOutput from photo:" + output.response
     web_result = await web_search.search_web(
         query=output.web_query.strip("\""),
         message_history=message_history,
         use_photo=output.reverse_image_search,
         image_bytes=image_bytes,
         location=location,
-        token_usage_by_model=token_usage_by_model
+        token_usage_by_model=token_usage_by_model,
+        extra_context=extra_context
     )
     
-    return f"HERE IS WHAT YOU SEE: {output.response}\nEXTRA INFO FROM WEB: {web_result}"  
+    return web_result
 
 async def handle_image_generation_tool(
     query: str,
@@ -357,6 +367,7 @@ async def handle_image_generation_tool(
     local_time: str | None = None,
     location: str | None = None,
     learned_context: Dict[str,str] | None = None,
+    extra_context: str | None = None
 ) -> str:
     """
     Generates an image based on a description or prompt.
@@ -379,6 +390,8 @@ def create_debug_tool_info_object(function_name: str, function_args: Dict[str, A
             function_args[arg_name] = "<bytes>"
         if isinstance(value, list) and arg_name != "message_history":
             function_args[arg_name] = ", ".join(function_args[arg_name])
+    if "message_history" in function_args:
+        del function_args["message_history"]
     if "vision" in function_args:
         del function_args["vision"]
     if "web_search" in function_args:
@@ -514,7 +527,8 @@ class GPTAssistant(Assistant):
                 image_bytes=image_bytes,
                 local_time=local_time,
                 location=location_address,
-                learned_context=learned_context
+                learned_context=learned_context,
+                extra_context=extra_context
             )
         ) if speculative_vision else None
 
@@ -524,7 +538,8 @@ class GPTAssistant(Assistant):
                 message_history=full_message_history,
                 token_usage_by_model=returned_response.token_usage_by_model,
                 image_bytes=image_bytes,
-                location=location_address
+                location=location_address,
+                extra_context=extra_context
             )
         ) 
 
@@ -614,7 +629,8 @@ class GPTAssistant(Assistant):
                             token_usage_by_model=returned_response.token_usage_by_model,
                             capabilities_used=returned_response.capabilities_used,
                             tools_used=tools_used,
-                            timings=timings
+                            timings=timings,
+                            extra_context=extra_context
                         )
                     )
             tool_outputs = await asyncio.gather(*tool_handlers)
@@ -639,16 +655,29 @@ class GPTAssistant(Assistant):
                         returned_response.debug_tools = json.dumps(tools_used)
                         returned_response.image = tool_outputs[i]
                         return returned_response
-                
-                message_history.append(
-                    {
-                        "tool_call_id": first_response_message.tool_calls[i].id,
-                        "role": "tool",
-                        "name": first_response_message.tool_calls[i].function.name,
-                        "content": tool_outputs[i],
-                    }
-                )
+                if first_response_message.tool_calls[i].function.name == PHOTO_TOOL_NAME and len(first_response_message.tool_calls) == 1:  
+                    returned_response.response = tool_outputs[i]
 
+                if first_response_message.tool_calls[i].function.name == SEARCH_TOOL_NAME and ( len(first_response_message.tool_calls) == 1 or all(first_response_message.tool_calls[i].function.name == SEARCH_TOOL_NAME for i in range(len(first_response_message.tool_calls))) ):  
+                    returned_response.response = tool_outputs[i]
+                if  len(first_response_message.tool_calls) > 1:  
+                    message_history.append(
+                        {
+                            "tool_call_id": first_response_message.tool_calls[i].id,
+                            "role": "tool",
+                            "name": first_response_message.tool_calls[i].function.name,
+                            "content": tool_outputs[i],
+                        }
+                    )
+            if len(first_response_message.tool_calls) == 1 or all(first_response_message.tool_calls[i].function.name == SEARCH_TOOL_NAME for i in range(len(first_response_message.tool_calls))):  
+                self._cancel_tasks([ speculative_vision_task, speculative_search_task ])
+                #  don't need do new llm call
+                
+                returned_response.debug_tools = json.dumps(tools_used)
+                returned_response.timings = json.dumps(timings)
+                returned_response.image = ""
+
+                return returned_response
             # Get final response from model
             t0 = timeit.default_timer()
             second_response = await self._client.chat.completions.create(

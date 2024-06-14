@@ -158,8 +158,8 @@ def get_next_filename():
 async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFile = None, image: UploadFile = None):
     try:
         mm: MultimodalRequest = Checker(MultimodalRequest)(data=mm)
-        print(mm)
-
+        # print(mm)
+        # mm.search_api = SearchAPI.PERPLEXITY
         # Transcribe voice prompt if it exists
         voice_prompt = ""
         if audio:
@@ -216,7 +216,6 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
         # Get assistant tool providers
         web_search: WebSearch = get_web_search_provider(app=request.app, mm=mm)
         vision: Vision = get_vision_provider(app=request.app, mm=mm)
-        
         # Call the assistant and deliver the response
         try:
             assistant, assistant_model = get_assistant(app=app, mm=mm)
@@ -233,7 +232,6 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
                 vision=vision,
                 speculative_vision=mm.speculative_vision
             )
-
             return MultimodalResponse(
                 user_prompt=user_prompt,
                 response=assistant_response.response,

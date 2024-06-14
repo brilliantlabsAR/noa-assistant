@@ -4,7 +4,7 @@
 # Web search tool implementation based on Perplexity. Cannot perform searches with images.
 #
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import aiohttp
 from pydantic import BaseModel
@@ -17,7 +17,7 @@ class PerplexityMessage(BaseModel):
 
 class MessageChoices(BaseModel):
     index: int = None
-    finish_reason: str = None
+    finish_reason: Optional[str] = None
     message: PerplexityMessage = None
     delta: dict = None
 
@@ -64,7 +64,8 @@ class PerplexityWebSearch(WebSearch):
         token_usage_by_model: Dict[str, TokenUsage],
         use_photo: bool = False,
         image_bytes: bytes | None = None,
-        location: str | None = None
+        location: str | None = None,
+        extra_context: str | None = None
     ) -> WebSearchResult:
         await self._lazy_init()
 
@@ -72,11 +73,11 @@ class PerplexityWebSearch(WebSearch):
         message_history = self._prune_history(message_history=message_history)
 
         messages = [
-            Message(role=Role.SYSTEM, content=self._system_message(location=location))
+            # Message(role=Role.SYSTEM, content=self._system_message(extra_context=extra_context))
+            Message(role=Role.SYSTEM, content=extra_context if extra_context is not None else self._system_message(location))
         ] + message_history + [
             Message(role=Role.USER, content=query)
         ]
-        print(messages)
 
         url = "https://api.perplexity.ai/chat/completions"
         payload = {
@@ -124,7 +125,7 @@ class PerplexityWebSearch(WebSearch):
             return await response.text()
 
     @staticmethod
-    def _system_message(location: str | None):
+    def _system_message(extra_context: str | None):
         if location is None or len(location) == 0:
             location = "<you do not know user's location and if asked, tell them so>"
         return f"reply in concise and short with high accurancy from web results if needed take location as {location}"

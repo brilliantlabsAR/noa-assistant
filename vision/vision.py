@@ -6,9 +6,9 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, List
 
-from models import TokenUsage
+from models import TokenUsage, Message
 
 
 @dataclass
@@ -22,5 +22,5 @@ class VisionOutput:
 
 class Vision(ABC):
     @abstractmethod
-    async def query_image(self, query: str, extra_context: str, image_bytes: bytes | None, token_usage_by_model: Dict[str, TokenUsage]) -> VisionOutput | None:
+    async def query_image(self, query: str, message_history:List[Message], extra_context: str, image_bytes: bytes | None, token_usage_by_model: Dict[str, TokenUsage]) -> VisionOutput | None:
         pass

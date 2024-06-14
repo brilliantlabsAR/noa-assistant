@@ -46,7 +46,7 @@ class SaturationFilter(BaseFilter):
         self.saturation = saturation
 
     def apply(self, image):
-        print("Saturation value: ", self.saturation)
+        # print("Saturation value: ", self.saturation)
         # Convert the image to the HSV color space
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         h, s, v = cv2.split(hsv)
@@ -66,7 +66,7 @@ class TemperatureFilter(BaseFilter):
         self.temperature = temperature
 
     def apply(self, image):
-        print("Temperature value: ", self.temperature)
+        # print("Temperature value: ", self.temperature)
         # Convert the image to the LAB color space
         lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
         l, a, b = cv2.split(lab)
@@ -86,7 +86,7 @@ class GammaCorrectionFilter(BaseFilter):
         self.gamma = gamma
 
     def apply(self, image):
-        print("Gamma value: ", self.gamma)
+        # print("Gamma value: ", self.gamma)
             # Apply gamma correction using cv2.addWeighted()
         invGamma = 1.0 / self.gamma
         table = np.array([((i / 255.0) ** invGamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
@@ -114,7 +114,7 @@ class SharpeningFilter(BaseFilter):
 
     def apply(self, image):
         # Apply Gaussian blur
-        print("Sharpening sigma: ", self.sigma, "Strength: ", self.strength)
+        # print("Sharpening sigma: ", self.sigma, "Strength: ", self.strength)
         blurred = cv2.GaussianBlur(image, (0, 0), self.sigma)
         
         # Calculate the unsharp mask
@@ -131,7 +131,7 @@ class NoiseReductionFilter(BaseFilter):
         self.kernel_size = kernel_size
 
     def apply(self, image):
-        print("Noise reduction method: ", self.method, "Kernel size: ", self.kernel_size)
+        # print("Noise reduction method: ", self.method, "Kernel size: ", self.kernel_size)
         if self.method == 'gaussian':
             # Apply Gaussian blur
             blurred = cv2.GaussianBlur(image, (self.kernel_size, self.kernel_size), 0)
@@ -151,7 +151,7 @@ class ContrastFilter(BaseFilter):
         self.contrast = contrast
 
     def apply(self, image):
-        print("Contrast value: ", self.contrast)
+        # print("Contrast value: ", self.contrast)
         # Apply contrast by converting the image to YUV color space
         yuv = cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
         y, u, v = cv2.split(yuv)
@@ -171,7 +171,7 @@ class BoostResolutionFilter(BaseFilter):
         self.factor = factor
 
     def apply(self, image):
-        print("Resolution boost factor: ", self.factor)
+        # print("Resolution boost factor: ", self.factor)
         # Upscale the image using bicubic interpolation
         return cv2.resize(image, None, fx=self.factor, fy=self.factor, interpolation=cv2.INTER_CUBIC)
     
@@ -183,7 +183,7 @@ class ApplyBlurFilter(BaseFilter):
         self.kernel_size = kernel_size
 
     def apply(self, image):
-        print("Blur kernel size: ", self.kernel_size)
+        # print("Blur kernel size: ", self.kernel_size)
         # Apply Gaussian blur
         return cv2.GaussianBlur(image, (self.kernel_size, self.kernel_size), 0)
     
@@ -195,7 +195,7 @@ class ReduceResolutionFilter(BaseFilter):
         self.factor = factor
 
     def apply(self, image):
-        print("Resolution reduction factor: ", self.factor)
+        # print("Resolution reduction factor: ", self.factor)
         # Downscale the image using bicubic interpolation
         return cv2.resize(image, None, fx=1.0/self.factor, fy=1.0/self.factor, interpolation=cv2.INTER_CUBIC)
     
@@ -207,7 +207,7 @@ class WhiteBalanceFilter(BaseFilter):
         pass
 
     def apply(self, image):
-        print("White balance")
+        # print("White balance")
         # Auto white balance by equalizing the histogram of the LAB L channel
         lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
         l, a, b = cv2.split(lab)
@@ -226,7 +226,7 @@ class BrightnessFilter(BaseFilter):
         self.brightness = brightness
 
     def apply(self, image):
-        print("Brightness value: ", self.brightness)
+        # print("Brightness value: ", self.brightness)
         # Increase the brightness by adding the specified value to each pixel
         return cv2.add(image, np.array([self.brightness]))
     

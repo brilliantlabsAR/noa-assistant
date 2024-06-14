@@ -6,14 +6,14 @@
 #
 
 import base64
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 
 import anthropic
 from pydantic import BaseModel
 
 from .vision import Vision, VisionOutput
 from .utils import detect_media_type
-from models import TokenUsage, accumulate_token_usage
+from models import TokenUsage, accumulate_token_usage, Message
 
 
 SYSTEM_MESSAGE = """
@@ -42,10 +42,23 @@ class ClaudeVision(Vision):
         self._client = client
         self._model = model
     
-    async def query_image(self, query: str, extra_context: str, image_bytes: bytes | None, token_usage_by_model: Dict[str, TokenUsage]) -> VisionOutput | None:
+    async def query_image(self, query: str, message_history: List[Message], extra_context: str, image_bytes: bytes | None, token_usage_by_model: Dict[str, TokenUsage]) -> VisionOutput | None:
         image_base64 = base64.b64encode(image_bytes).decode("utf-8") if image_bytes is not None else ""
-
-        messages = [
+        if not message_history:
+            message_history = []
+        else:
+            message_history = [
+                {
+                    "role": m.role,
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": m.content
+                        } 
+                    ]
+                } for m in message_history if m.role in ["user", "assistant"] 
+            ]
+        messages = message_history + [
             {
                 "role": "user",
                 "content": [

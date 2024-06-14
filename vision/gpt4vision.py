@@ -5,14 +5,14 @@
 #
 
 import base64
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 
 import openai
 from pydantic import BaseModel
 
 from .vision import Vision, VisionOutput
 from .utils import detect_media_type
-from models import TokenUsage, accumulate_token_usage
+from models import TokenUsage, accumulate_token_usage, Message
 
 
 SYSTEM_MESSAGE = """
@@ -20,15 +20,11 @@ You are Noa, a smart personal AI assistant inside the user's AR smart glasses th
 queries and questions. You have access to a photo from the smart glasses camera of what the user was
 seeing at the time they spoke but you NEVER mention the photo or image and instead respond as if you
 are actually seeing.
-
-The camera is unfortunately VERY low quality but the user is counting on you to interpret the
-blurry, pixelated images. NEVER comment on image quality. Do your best with images.
-
+NEVER comment on image quality.
 ALWAYS respond with a JSON object with these fields:
 
 response: (String) Respond to user as best you can. Be precise, get to the point, and speak as though you actually see the image.
 web_query: (String) Empty if your "response" answers everything user asked. If web search based on visual description would be more helpful, create a query (e.g. up-to-date, location-based, or product info).
-reverse_image_search: (Bool) True if your web query from description is insufficient and including the *exact* thing user is looking at as visual target is needed.
 """
 
 class ModelOutput(BaseModel):
@@ -46,9 +42,20 @@ class GPT4Vision(Vision):
     def model(self):
         return self._model
     
-    async def query_image(self, query: str, extra_context: str, image_bytes: bytes | None, token_usage_by_model: Dict[str, TokenUsage]) -> VisionOutput | None:
+    async def query_image(self, query: str, message_history:List[Message], extra_context: str, image_bytes: bytes | None, token_usage_by_model: Dict[str, TokenUsage]) -> VisionOutput | None:
+        if not message_history:
+            message_history = []
+        else:
+            message_history = [
+                {
+                    "role": m.role,
+                    "content": m.content
+                }
+                for m in message_history
+            ]
         messages = [
             { "role": "system", "content": SYSTEM_MESSAGE + extra_context },
+        ] + message_history + [
             {
                 "role": "user",
                 "content": [
@@ -56,11 +63,10 @@ class GPT4Vision(Vision):
                 ]
             }
         ]
-        
         if image_bytes:
             image_base64 = base64.b64encode(image_bytes).decode("utf-8")
             media_type = detect_media_type(image_bytes=image_bytes)
-            messages[1]["content"].append({ "type": "image_url", "image_url": { "url": f"data:{media_type};base64,{image_base64}" } }),
+            messages[len(messages)-1]["content"].append({ "type": "image_url", "image_url": { "url": f"data:{media_type};base64,{image_base64}" } }),
         
         response = await self._client.chat.completions.create(
             model=self._model,
@@ -98,7 +104,10 @@ class GPT4Vision(Vision):
         try:
             return ModelOutput.model_validate_json(json_data=json_string)
         except:
-            pass
-        return None
+            return ModelOutput(
+                response=content,
+                web_query=None,
+                reverse_image_search=False
+            )
     
 Vision.register(GPT4Vision)
