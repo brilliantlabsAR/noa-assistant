@@ -5,8 +5,9 @@
 #
 # TODO:
 # -----
+# - Fix image tool to perform web search, too
 # - Image generation
-# - Speculative tools
+# - Use speculative tools in _handle_tools
 #
 
 import asyncio
@@ -14,10 +15,11 @@ import base64
 from dataclasses import dataclass
 import json
 import timeit
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import openai
 from openai.types.chat import ChatCompletionMessageToolCall
+from openai.types.chat.chat_completion_message_tool_call import Function
 from openai.types.completion_usage import CompletionUsage
 
 from .response import AssistantResponse
@@ -71,29 +73,11 @@ CONTEXT_SYSTEM_MESSAGE_PREFIX = "## Additional context about the user:"
 # Tools
 ####################################################################################################
 
-DUMMY_SEARCH_TOOL_NAME = "general_knowledge_search"
 SEARCH_TOOL_NAME = "web_search"
 PHOTO_TOOL_NAME = "analyze_photo"
 QUERY_PARAM_NAME = "query"
 
 TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": DUMMY_SEARCH_TOOL_NAME,
-            "description": """Non-recent trivia and general knowledge""",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    QUERY_PARAM_NAME: {
-                        "type": "string",
-                        "description": "search query",
-                    },
-                },
-                "required": [ QUERY_PARAM_NAME ]
-            },
-        },
-    },
     {
         "type": "function",
         "function": {
@@ -147,34 +131,6 @@ def accumulate_token_usage(token_usage_by_model: Dict[str, TokenUsage], usage: C
 
 
 ####################################################################################################
-# Stream
-#
-# A stream is a queue of AssistantResponse objects produced by a task (either a tool or the final
-# assistant LLM call). A "terminal" stream is one that can safely be streamed out as the final 
-# assistant response. Many tools are capable of serving as a shortcut to the final assistant
-# response.
-####################################################################################################
-
-@dataclass
-class Stream:
-    task: asyncio.Task[Any]
-    queue: asyncio.Queue        # output streamed here
-    safe_for_final_output: bool # safe to output directly as assistant response?
-
-    async def get_final_output(self):
-        """
-        Returns
-        -------
-        Any
-            Waits for the final AssistantResponse output of the queue. Assumes the task is running. 
-        """
-        while True:
-            response_chunk: AssistantResponse = await asyncio.wait_for(self.queue.get(), timeout=60)
-            if response_chunk.stream_finished:  # final cumulative response
-                return response_chunk
-
-
-####################################################################################################
 # Assistant
 ####################################################################################################
 
@@ -215,21 +171,15 @@ class NewAssistant:
             the user indirectly references the date or time. E.g.,
             "Saturday, March 30, 2024, 1:21 PM".
 
-        Yields
+        Returns
         ------
         AssistantResponse
-            Assistant response (text and some required analytics). Partial responses are denoted
-            with stream_finished set to False. The final response, with stream_finished=True,
-            contains the full accumulated response with metrics.
-
-            That is, when stream_finished=False (for all but the last item), only the response field
-            should be read and it will contain partial text. After everything is streamed out, one
-            final AssistantReponse is returned with response set to the complete assembled output is
-            produced. The various other fields (image, token usage, timings, etc.) should all be 
-            taken from this final object.
+            Assistant response (text and some required analytics).
         """
         t_start = timeit.default_timer()
+
         token_usage_by_model: Dict[str, TokenUsage] = {}
+        capabilities_used: List[Capability] = []
         timings: Dict[str, float] = {}
 
         message_history = message_history if message_history else []
@@ -243,10 +193,17 @@ class NewAssistant:
             local_time=local_time
         )
 
-        stream_by_tool_name: Dict[str, Stream] = {}
-        await self._create_speculative_tool_calls(
-            stream_by_tool_name=stream_by_tool_name,
-            message_history=message_history
+        task_by_tool_name: Dict[str, asyncio.Task[str]] = {}
+        self._create_speculative_tool_calls(
+            task_by_tool_name=task_by_tool_name,
+            token_usage_by_model=token_usage_by_model,
+            capabilities_used=capabilities_used,
+            timings=timings,
+            query=prompt,
+            flavor_prompt=flavor_prompt,
+            message_history=message_history,
+            location_address=location_address,
+            local_time=local_time
         )
 
         initial_response = await self._client.chat.completions.create(
@@ -264,35 +221,30 @@ class NewAssistant:
         # streams, or second LLM response stream incorporating tool calls
         tool_calls = initial_response_message.tool_calls
         if not tool_calls or len(tool_calls) == 0:
-            # Return initial assistant response
+            # Return initial assistant response directly
             t_end = timeit.default_timer()
             timings["first_token"] = t_end - t_start
             timings["total"] = t_end - t_start
-            yield AssistantResponse(
+            return AssistantResponse(
                 token_usage_by_model=token_usage_by_model,
                 capabilities_used=[ Capability.ASSISTANT_KNOWLEDGE ],
-                response=initial_response.choices[0].message.content,
+                response=initial_response_message.content,
                 timings=timings,
-                image="",
-                stream_finished=True
+                image=""
             )
         else:
-            # Determine a stream to output final response from: one of our speculative tools or a
-            # final LLM response
-            speculative_tool_stream = stream_by_tool_name.get(tool_calls[0].function.name)
-            output_stream: Stream | None = None
-            if len(tool_calls) == 1 and speculative_tool_stream is not None:
-                # Only a single tool and it matches an in-flight speculative one, stream out the
-                # tool output directly
-                output_stream = speculative_tool_stream
-            else:
-                # Perform tool calls and get output streams
+            # Determine task to output final response from: one of our speculative tools or a final
+            # LLM response
+            output_task: Optional[asyncio.Task[str]] = self._get_direct_output_task(tool_calls=tool_calls, speculative_task_by_tool_name=task_by_tool_name)
+            if output_task is None:
+                # Cannot use a speculative tool, need to perform tool calls and create an output
+                # task
                 messages.append(initial_response_message)
-                #TODO: use speculative tools if possible
-                tool_streams = await self._handle_tools(
+                tool_tasks = await self._handle_tools(
                     token_usage_by_model=token_usage_by_model,
+                    capabilities_used=capabilities_used,
                     timings=timings,
-                    stream_by_tool_name=stream_by_tool_name,
+                    task_by_tool_name=task_by_tool_name,
                     tool_calls=tool_calls,
                     flavor_prompt=flavor_prompt,
                     message_history=message_history,
@@ -301,43 +253,93 @@ class NewAssistant:
                     local_time=local_time
                 )
 
-                # If multiple output streams, we have to invoke the LLM again in order to produce a
-                # coherent response. Otherwise, we can stream out the single tool output directly.
-                if len(tool_streams) != 1 or not tool_streams[0].safe_for_final_output:
-                    output_stream = await self._complete_tool_response(
+                # If multiple tools, we have to invoke the LLM again in order to produce a coherent
+                # response. Otherwise, we can output the single tool response directly. 
+                if len(tool_tasks) != 1:
+                    output_task = await self._complete_tool_response(
                         token_usage_by_model=token_usage_by_model,
                         timings=timings,
                         messages=messages,
                         tool_calls=tool_calls,
-                        tool_streams=tool_streams
+                        tool_tasks=tool_tasks
                     )
                 else:
-                    output_stream = tool_streams[0]
+                    print(f"Directly outputting tool response: {tool_calls[0].function.name}")
+                    output_task = tool_tasks[0]
             
-            # Stream out the output from the queue
-            t_first = None
-            while True:
-                response_chunk: AssistantResponse = await asyncio.wait_for(output_stream.queue.get(), timeout=60)   # will throw on timeout, killing the request
-                if t_first is None:
-                    t_first = timeit.default_timer()
-                if response_chunk.stream_finished:
-                    t_end = timeit.default_timer()
-                    timings["first_token"] = t_first - t_start
-                    timings["total"] = t_end - t_start
-                    response_chunk.timings = timings
-                yield response_chunk
-                if response_chunk.stream_finished:
-                    break
-            
-            print("")
-            print(f"Timings")
-            print(f"-------")
-            print(f"  first token: {t_first-t_start:.2f}")
-            print(f"  total      : {t_end-t_start:.2f}")
-            print("")
+            # Final response
+            output = await asyncio.wait_for(output_task, timeout=60)    # will throw on timeout, killing request
+            self._cancel_tasks(task_by_tool_name)                       # ensure any remaining speculative tasks are killed
+            return AssistantResponse(
+                token_usage_by_model=token_usage_by_model,
+                capabilities_used=capabilities_used,
+                response=output,
+                timings=timings,
+                image=""
+            )
         
-        # Clean up
-        self._cancel_streams(stream_by_tool_name=stream_by_tool_name)
+    def _create_speculative_tool_calls(
+        self,
+        task_by_tool_name: Dict[str, asyncio.Task[str]],
+        token_usage_by_model: Dict[str, TokenUsage],
+        capabilities_used: List[Capability],
+        timings: Dict[str, float],
+        query: str,
+        flavor_prompt: str,
+        message_history: List[Message],
+        location_address: str | None,
+        local_time: str | None
+    ):
+        # Always kick off a web search
+        tool_call = ChatCompletionMessageToolCall(
+            id="speculative_web_search_tool",
+            function=Function(
+                arguments=json.dumps({ "query": query }),
+                name=SEARCH_TOOL_NAME
+            ),
+            type="function"
+        )
+        task_by_tool_name[SEARCH_TOOL_NAME] = self._create_tool_call(
+            token_usage_by_model=token_usage_by_model,
+            capabilities_used=capabilities_used,
+            timings=timings,
+            tool_call=tool_call,
+            flavor_prompt=flavor_prompt,
+            message_history=message_history,
+            image_bytes=None,
+            location_address=location_address,
+            local_time=local_time
+        )
+
+    @staticmethod
+    def _get_direct_output_task(tool_calls: List[ChatCompletionMessageToolCall], speculative_task_by_tool_name: Dict[str, asyncio.Task[str]]) -> Optional[asyncio.Task[str]]:
+        """
+        Identifies the speculative tool task, if any, that can be used to answer the user's query
+        without performing further tool calls or invoking the LLM again. 
+
+        This only works for speculative tasks, which are given the full user query and cannot be
+        used on actual tool tasks, which are given new queries. This method assumes that multiple
+        tool requests for the same tool can be handled by the single speculative tool task of the
+        corresponding tool (e.g., if multiple web search tool calls are requested, the single
+        speculative web tool task can be used to answer the user).
+
+        Parameters
+        ----------
+        tool_calls : List[ChatCompletionMessageToolCall]
+            Tool call requests.
+        speculative_task_by_tool_name : Dict[str, asyncio.Task[str]]
+            Speculative tasks already underway.
+
+        Returns
+        -------
+        Optional[asyncio.Task[str]]
+            The task to use for output or None if speculative tasks cannot be used.
+        """
+        tool_names = set([ tool_call.function.name for tool_call in tool_calls ])
+        if len(tool_names) == 1 and tool_calls[0].function.name in speculative_task_by_tool_name:
+            print(f"Using speculative tool: {tool_calls[0].function.name}")
+            return speculative_task_by_tool_name[tool_calls[0].function.name]
+        return None
 
     async def _complete_tool_response(
         self,
@@ -345,13 +347,12 @@ class NewAssistant:
         timings: Dict[str, float],
         messages: List[Message],
         tool_calls: List[ChatCompletionMessageToolCall],
-        tool_streams: List[Stream]
-    ) -> Stream:
-        assert len(tool_calls) == len(tool_streams)
+        tool_tasks: List[asyncio.Task[str]]
+    ) -> asyncio.Task[str]:
+        assert len(tool_calls) == len(tool_tasks)
 
-        # Wait for all tool streams to complete and get only their final outputs (which contain the
-        # complete, aggregated response)
-        tool_outputs = await asyncio.gather(*[ stream.get_final_output() for stream in tool_streams ])
+        # Wait for all tool tasks to complete and get their responses
+        tool_outputs = await asyncio.gather(*tool_tasks)
 
         # Tool responses -> messages
         for i in range(len(tool_outputs)):
@@ -360,103 +361,61 @@ class NewAssistant:
                     "tool_call_id": tool_calls[i].id,
                     "role": "tool",
                     "name": tool_calls[i].function.name,
-                    "content": tool_outputs[i].response
+                    "content": tool_outputs[i]
                 }
             )
 
-        # Create task to make second call to LLM (with tool responses) and stream into output queue
-        queue = asyncio.Queue()
-        return Stream(
-            task=asyncio.create_task(self._handle_tool_completion(token_usage_by_model=token_usage_by_model, timings=timings, queue=queue, messages=messages)),
-            queue=queue,
-            safe_for_final_output=True
-        )
+        # Create task to make second call to LLM (with tool responses)
+        return asyncio.create_task(self._handle_tool_completion(token_usage_by_model=token_usage_by_model, timings=timings, messages=messages))
     
     async def _handle_tool_completion(
         self,
-        queue: asyncio.Queue,
         token_usage_by_model: Dict[str, TokenUsage],
         timings: Dict[str, float],
         messages: List[Message]
-    ):
-        # Second LLM call
-        stream = await self._client.chat.completions.create(
+    ) -> str:
+        # Second (and final) LLM call
+        t1 = timeit.default_timer()
+        response = await self._client.chat.completions.create(
             model=MODEL,
-            messages=messages,
-            stream=True,
-            stream_options={ "include_usage": True }
+            messages=messages
         )
-
-        # Stream out to queue
-        accumulated_response = []
-        async for chunk in stream:
-            if len(chunk.choices) == 0:
-                # Final chunk has usage. We also return the complete, accumulated response here.
-                accumulate_token_usage(token_usage_by_model=token_usage_by_model, usage=chunk.usage)
-                response = AssistantResponse(
-                    token_usage_by_model=token_usage_by_model,
-                    capabilities_used=[],
-                    response="".join(accumulated_response),
-                    timings=timings,
-                    image="",
-                    stream_finished=True
-                )
-                await queue.put(response)
-                break
-            else:
-                response_chunk = chunk.choices[0].delta.content
-                if response_chunk is not None:  # an empty content chunk can occur before the stop event
-                    accumulated_response.append(response_chunk)
-                    response = AssistantResponse(
-                        token_usage_by_model={},
-                        capabilities_used=[],
-                        response=response_chunk,
-                        timings={},
-                        image="",
-                        stream_finished=False
-                    )
-                    await queue.put(response)
-
-    async def _create_speculative_tool_calls(
-        self,
-        stream_by_tool_name: Dict[str, Stream],
-        message_history: List[Message]
-    ):
-        #TODO: write me
-        return
+        accumulate_token_usage(token_usage_by_model=token_usage_by_model, usage=response.usage)
+        timings["final"] = timeit.default_timer() - t1
+        return response.choices[0].message.content
         
     async def _handle_tools(
         self,
         token_usage_by_model: Dict[str, TokenUsage],
+        capabilities_used: List[Capability],
         timings: Dict[str, float],
-        stream_by_tool_name: Dict[str, Stream],
+        task_by_tool_name: Dict[str, asyncio.Task[str]],
         tool_calls: List[ChatCompletionMessageToolCall],
         flavor_prompt: str | None,
         message_history: List[Message],
         image_bytes: bytes | None,
         location_address: str | None,
         local_time: str | None
-    ) -> List[Stream]:
+    ) -> List[asyncio.Task[str]]:
         """
-        NOTE: Token usage and timings are mutated. It is a bit confusing that we also attach them
-        to final responses in streams but this is so that the final response delivered to the client
-        (which can come from a tool stream) contains the latest updated values.
+        The created tasks will mutate oken_usage_by_model, capabilities_used, and timings.
         """
         # Tool names in the order that function calling requested them
         requested_tool_names = [ tool_call.function.name for tool_call in tool_calls ]
 
         # Cancel the speculative tool calls we don't need any more
         #TODO: reuse some of these if it makes sense to!
-        for tool_name in list(stream_by_tool_name.keys()):
+        for tool_name in list(task_by_tool_name.keys()):
             if tool_name not in requested_tool_names:
-                self._cancel_stream(stream_by_tool_name=stream_by_tool_name, tool_name=tool_name)
+                self._cancel_task(task_by_tool_name=task_by_tool_name, tool_name=tool_name)
         
-        # Create additional streams for any other tools requested
+        # Create additional tasks for any other tools requested
         for tool_call in tool_calls:
             tool_name = tool_call.function.name
-            if tool_name not in stream_by_tool_name:
-                stream_by_tool_name[tool_name] = self._create_tool_call(
+            if tool_name not in task_by_tool_name:
+                task_by_tool_name[tool_name] = self._create_tool_call(
                     token_usage_by_model=token_usage_by_model,
+                    capabilities_used=capabilities_used,
                     timings=timings,
                     tool_call=tool_call,
                     flavor_prompt=flavor_prompt,
@@ -466,12 +425,13 @@ class NewAssistant:
                     local_time=local_time
                 )
 
-        # Return all the tool streams in the order that function calling requested them
-        return [ stream_by_tool_name[tool_name] for tool_name in requested_tool_names ]
+        # Return all the tasks in the order that function calling requested them
+        return [ task_by_tool_name[tool_name] for tool_name in requested_tool_names ]
 
     def _create_tool_call(
         self,
         token_usage_by_model: Dict[str, TokenUsage],
+        capabilities_used: List[Capability],
         timings: Dict[str, float],
         tool_call: ChatCompletionMessageToolCall,
         flavor_prompt: str | None,
@@ -479,38 +439,22 @@ class NewAssistant:
         image_bytes: bytes | None,
         location_address: str | None,
         local_time: str | None
-    ) -> Stream:
+    ) -> asyncio.Task[str]:
         tool_functions_by_name = {
             SEARCH_TOOL_NAME: self._handle_web_search_tool,
             PHOTO_TOOL_NAME: self._handle_photo_tool,
-            DUMMY_SEARCH_TOOL_NAME: self._handle_general_knowledge_tool
         }
-
-        # Tool outputs that cannot be streamed out as the final assistant response
-        tools_unsafe_for_terminal_use = [ DUMMY_SEARCH_TOOL_NAME ]
-
-        # Create a queue for the tool to send output chunks to
-        queue = asyncio.Queue()
-
         # Validate tool
         if tool_call.function.name not in tool_functions_by_name:
             print(f"Error: Hallucinated tool: {tool_call.function.name}")
-            return Stream(
-                task=asyncio.create_task(self._create_error_stream(queue=queue, message="Error: you hallucinated a tool that doesn't exist. Tell user you had trouble interpreting the request and ask them to rephrase it.")),
-                queue=queue,
-                safe_for_final_output=False
-            )
+            return asyncio.create_task(self._return_tool_error_message(message="Error: you hallucinated a tool that doesn't exist. Tell user you had trouble interpreting the request and ask them to rephrase it."))
         args: Dict[str, Any] | None = self._validate_tool_args(tool_call=tool_call)
         if args is None:
-            return Stream(
-                task=asyncio.create_task(self._create_error_stream(queue=queue, message="Error: you failed to use a required parameter. Tell user you had trouble interpreting the request and ask them to rephrase it.")),
-                queue=queue,
-                safe_for_final_output=False
-            )
+            return asyncio.create_task(self._return_tool_error_message(message="Error: you failed to use a required parameter. Tell user you had trouble interpreting the request and ask them to rephrase it."))
 
         # Fill in common parameters to all tools
-        args["queue"] = queue
         args["token_usage_by_model"] = token_usage_by_model
+        args["capabilities_used"] = capabilities_used
         args["timings"] = timings
         args["flavor_prompt"] = flavor_prompt
         args["message_history"] = message_history
@@ -518,53 +462,19 @@ class NewAssistant:
         args["location_address"] = location_address
         args["local_time"] = local_time
 
-        # Create a task and stream, invoking the tool as a task
+        # Create tool task
         tool_name = tool_call.function.name
         tool_function = tool_functions_by_name[tool_name]
-        task = asyncio.create_task(tool_function(**args))
-        return Stream(task=task, queue=queue, safe_for_final_output=tool_name not in tools_unsafe_for_terminal_use)
+        return asyncio.create_task(tool_function(**args))
     
     @staticmethod
-    def _create_error_stream(queue: asyncio.Queue, message: str) -> Stream:
-        # For failed tool calls, just create a dummy stream that outputs an error response
-        queue.put_nowait(AssistantResponse._error_response(message=message))
-    
-    async def _handle_general_knowledge_tool(
-        self,
-        queue: asyncio.Queue,
-        token_usage_by_model: Dict[str, TokenUsage],
-        timings: Dict[str, float],
-        query: str,
-        flavor_prompt: str | None,
-        message_history: List[Message],
-        image_bytes: bytes | None,
-        location_address: str | None,
-        local_time: str | None
-    ):
-        """
-        Dummy general knowledge tool that tricks GPT into generating an answer directly instead of
-        reaching for web search. GPT knows that the web contains information on virtually everything, so
-        it tends to overuse web search. One solution is to very carefully enumerate the cases for which
-        web search is appropriate, but this is tricky. Should "Albert Einstein's birthday" require a web
-        search? Probably not, as GPT has this knowledge baked in. The trick we use here is to create a
-        "general knowledge" tool that contains any information Wikipedia or an encyclopedia would have
-        (a reasonable proxy for things GPT knows). We return an empty string, which forces GPT to
-        produce its own response at the expense of a little bit of latency for the tool call.
-        """
-        dummy_response = AssistantResponse(
-            token_usage_by_model={},
-            capabilities_used=[ Capability.ASSISTANT_KNOWLEDGE ],
-            response="",
-            timings={},
-            image="",
-            stream_finished=True
-        )
-        queue.put_nowait(dummy_response)
+    async def _return_tool_error_message(message: str) -> str:
+        return message 
     
     async def _handle_photo_tool(
         self,
-        queue: asyncio.Queue,
         token_usage_by_model: Dict[str, TokenUsage],
+        capabilities_used: List[Capability],
         timings: Dict[str, float],
         query: str,
         flavor_prompt: str | None,
@@ -572,7 +482,7 @@ class NewAssistant:
         image_bytes: bytes | None,
         location_address: str | None,
         local_time: str | None
-    ):
+    ) -> str:
         t_start = timeit.default_timer()
 
         # Create messages for GPT w/ image. We can reuse our system prompt here.
@@ -597,52 +507,21 @@ class NewAssistant:
         )
 
         # Call GPT
-        stream = await self._client.chat.completions.create(
+        response = await self._client.chat.completions.create(
             model=MODEL,
             messages=messages,
-            #max_tokens=4096,
-            stream=True,
-            stream_options={ "include_usage": True }
         )
-        accumulated_response = []
-        t_first = None
-        async for chunk in stream:
-            if t_first is None:
-                t_first = timeit.default_timer()
-            if len(chunk.choices) == 0:
-                # Final chunk has usage
-                accumulate_token_usage(token_usage_by_model=token_usage_by_model, usage=chunk.usage)
-                t_end = timeit.default_timer()
-                timings["vision_first"] = t_first - t_start
-                timings["vision_total"] = t_end - t_start
-                response_chunk = AssistantResponse(
-                    token_usage_by_model=token_usage_by_model,
-                    capabilities_used=[ Capability.VISION ],
-                    response="".join(accumulated_response),
-                    timings=timings,
-                    image="",
-                    stream_finished=True
-                )
-                await queue.put(response_chunk)
-                break
-            else:
-                content_chunk = chunk.choices[0].delta.content
-                if content_chunk is not None:   # an empty content chunk can occur before the stop event
-                    accumulated_response.append(content_chunk)
-                    response_chunk = AssistantResponse(
-                        token_usage_by_model={},
-                        capabilities_used=[],
-                        response=content_chunk,
-                        timings={},
-                        image="",
-                        stream_finished=False
-                    )
-                    await queue.put(response_chunk)
+        accumulate_token_usage(token_usage_by_model=token_usage_by_model, usage=response.usage)
+        t_end = timeit.default_timer()
+        timings["vision"] = t_end - t_start
+        capabilities_used.append(Capability.VISION)
+        return response.choices[0].message.content
+
     
     async def _handle_web_search_tool(
         self,
-        queue: asyncio.Queue,
         token_usage_by_model: Dict[str, TokenUsage],
+        capabilities_used: List[Capability],
         timings: Dict[str, float],
         query: str,
         flavor_prompt: str | None,
@@ -651,15 +530,19 @@ class NewAssistant:
         location_address: str | None,
         local_time: str | None
     ):
-        async for response_chunk in self._web_tool.search_web(
+        t_start = timeit.default_timer()
+        output = await self._web_tool.search_web(
             token_usage_by_model=token_usage_by_model,
             timings=timings,
             query=query,
+            flavor_prompt=flavor_prompt,
             message_history=message_history,
             location=location_address
-        ):
-            await queue.put(response_chunk)
-
+        )
+        t_end = timeit.default_timer()
+        timings["web_search_tool"] = t_end - t_start
+        capabilities_used.append(Capability.WEB_SEARCH)
+        return output
 
     @staticmethod
     def _validate_tool_args(tool_call: ChatCompletionMessageToolCall) -> Dict[str, Any]:
@@ -694,17 +577,17 @@ class NewAssistant:
         return args
 
     @staticmethod
-    def _cancel_streams(stream_by_tool_name: Dict[str, Stream]):
-        for tool_name, stream in list(stream_by_tool_name.items()):
-            stream.task.cancel()
-            del stream_by_tool_name[tool_name]
+    def _cancel_tasks(task_by_tool_name: Dict[str, asyncio.Task[str]]):
+        for tool_name, task in list(task_by_tool_name.items()):
+            task.cancel()
+            del task_by_tool_name[tool_name]
    
     @staticmethod
-    def _cancel_stream(stream_by_tool_name: Dict[str, Stream], tool_name: str):
-        stream = stream_by_tool_name.get(key=tool_name)
-        if stream is not None:
-            stream.task.cancel()
-            del stream_by_tool_name[tool_name]
+    def _cancel_task(task_by_tool_name: Dict[str, asyncio.Task[str]], tool_name: str):
+        task = task_by_tool_name.get(tool_name)
+        if task is not None:
+            task.cancel()
+            del task_by_tool_name[tool_name]
 
     @staticmethod
     def _insert_system_message(messages: List[Message], system_message: str): 

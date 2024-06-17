@@ -236,7 +236,7 @@ if __name__ == "__main__":
 
                 # Construct API call data
                 if localhost:
-                    options.endpoint = "http://localhost:8000/mm_stream"
+                    options.endpoint = "http://localhost:8000/mm"
                     data = { 
                         "mm": json.dumps({
                             "prompt": user_message.text,
@@ -267,41 +267,13 @@ if __name__ == "__main__":
                 # Make the call and evaluate
                 try:
                     # Make streaming call and accumulate all chunks
-                    with requests.post(url=options.endpoint, files=files, data=data, headers=headers, stream=True) as response:
+                    with requests.post(url=options.endpoint, files=files, data=data, headers=headers) as response:
                         if response.status_code != 200:
                             print(f"Error: {response.status_code}")
                             print(response.content)
                             response.raise_for_status()
-                        
-                        # Get all chunks
-                        response_chunks = []
-                        expecting_json_data = False
-                        t_start = timeit.default_timer()
-                        t_first = None
-                        for line in response.iter_lines():
-                            if line is not None:
-                                if t_first is None:
-                                    t_first = timeit.default_timer()
-                                line = line.decode("utf-8")
-                                if expecting_json_data and line.startswith("data:"):
-                                    chunk = MultimodalResponse.model_validate_json(json_data=line.lstrip("data:").strip())
-                                    response_chunks.append(chunk)
-                                    expecting_json_data = False # reset state
-                                elif line.startswith("event: json"):
-                                    expecting_json_data = True  # json event, get next data
-                                elif line.startswith("event:"):
-                                    expecting_json_data = False # some other event, discard data
-                        t_end = timeit.default_timer()
-                        print("")
-                        print(f"Timings")
-                        print(f"-------")
-                        print(f"  first token: {t_first-t_start:.2f}")
-                        print(f"  total      : {t_end-t_start:.2f}")
-                        print("")
-
-                    # Last chunk has all the information we need if we don't want to actually stream
-                    mm_response = response_chunks[-1]
-        
+                        mm_response = MultimodalResponse.model_validate_json(json_data=response.content)
+                    
                     # Evaluate
                     test_result = evaluate_capabilities_used(input=user_message, output=mm_response)
                     if test_result != TestResult.IGNORED:

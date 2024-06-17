@@ -65,16 +65,17 @@ class WebSearchTool:
         token_usage_by_model: Dict[str, TokenUsage],
         timings: Dict[str, float],
         query: str,
+        flavor_prompt: str | None,
         message_history: List[Message],
         location: str | None = None
-    ): 
+    ) -> str:
         t_start = timeit.default_timer()
         await self._lazy_init()
 
         message_history = self._prune_history(message_history=message_history)
 
         messages = [
-            Message(role=Role.SYSTEM, content=self._system_message(location=location))
+            Message(role=Role.SYSTEM, content=self._system_message(flavor_prompt=flavor_prompt, location=location))
         ] + message_history + [
             Message(role=Role.USER, content=query)
         ]
@@ -94,8 +95,7 @@ class WebSearchTool:
         async with self._session.post(url=url, json=payload, headers=headers) as response:
             if response.status != 200:
                 print(f"Failed to get response from Perplexity: {await response.text()}")
-                yield AssistantResponse._error_response(message="Error: Web search failed. Inform the user that they should try again.")
-                return
+                return "Error: Web search failed. Inform the user that they should try again."
             
             # Stream out response
             accumulated_response = ""
@@ -108,26 +108,14 @@ class WebSearchTool:
                     chunk = PerplexityResponse.model_validate_json(json_chunk)
                 except Exception as e:
                     print(f"Error: Unable to decode chunk from Perplexity: {e}, chunk={json_chunk}")
-                    yield AssistantResponse._error_response(message="Error: Web search failed. Inform the user they should try again.")
-                    return
+                    return "Error: Web search failed. Inform the user they should try again."
                 
                 if t_first is None:
                     t_first = timeit.default_timer()
                 
                 # Accumulate response
-                content = self._get_delta_content(old_content=accumulated_response, new_content=chunk.choices[0].message.content)
                 accumulated_response = chunk.choices[0].message.content
                 usage = chunk.usage
-
-                # Yield a partial response
-                yield AssistantResponse(
-                    token_usage_by_model={},
-                    capabilities_used=[],
-                    response=content,
-                    timings={},
-                    image="",
-                    stream_finished=False
-                )
 
             # Timings
             t_end = timeit.default_timer()
@@ -148,31 +136,17 @@ class WebSearchTool:
                 else:
                     token_usage_by_model[MODEL].add(token_usage=token_usage)
 
-            # Yield final, accumulated response with usage
-            yield AssistantResponse(
-                token_usage_by_model=token_usage_by_model,
-                capabilities_used=[ Capability.WEB_SEARCH ],
-                response=accumulated_response,
-                timings=timings,
-                image="",
-                stream_finished=True
-            )
-    
+            # Return final, accumulated response
+            return accumulated_response
+   
     @staticmethod
-    def _get_delta_content(old_content: str, new_content: str) -> str:
-        # Perplexity's delta messages are broken but they do send cumulative content with each 
-        # update, so we just use that to compute our own delta response.
-        old_len = len(old_content)
-        if len(new_content) < old_len:
-            # This should never happen
-            return ""
-        return new_content[old_len:]
-    
-    @staticmethod
-    def _system_message(location: str | None):
+    def _system_message(flavor_prompt: str | None, location: str | None):
         if location is None or len(location) == 0:
             location = "<you do not know user's location and if asked, tell them so>"
-        return f"reply in concise and short with high accurancy from web results if needed take location as {location}"
+        system_message = f"reply in concise and short with high accurancy from web results if needed take location as {location}"
+        if flavor_prompt is not None:
+            system_message = f"{system_message}\n{flavor_prompt}"
+        return system_message
 
     @staticmethod
     def _prune_history(

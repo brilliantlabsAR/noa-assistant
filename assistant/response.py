@@ -18,7 +18,6 @@ class AssistantResponse:
     response: str
     timings: Dict[str, float]
     image: str
-    stream_finished: bool   # for streaming versions, indicates final response chunk
 
     @staticmethod
     def _error_response(message: str) -> AssistantResponse:
