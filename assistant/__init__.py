@@ -1,2 +1,2 @@
-from .new_assistant import NewAssistant
+from .assistant import Assistant
 from .response import AssistantResponse

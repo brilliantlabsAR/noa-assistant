@@ -5,7 +5,6 @@
 #
 # TODO:
 # -----
-# - API keys
 # - Image generation
 #
 
@@ -159,7 +158,7 @@ def accumulate_token_usage(token_usage_by_model: Dict[str, TokenUsage], **kwargs
 # Assistant
 ####################################################################################################
 
-class NewAssistant:
+class Assistant:
     def __init__(self, client: openai.AsyncOpenAI, perplexity_api_key: str):
         self._client = client
         self._web_tool = WebSearchTool(api_key=perplexity_api_key)
@@ -570,7 +569,6 @@ class NewAssistant:
         # Parse structured output. Response expected to be JSON but may be wrapped with 
         # ```json ... ```
         content = response.choices[0].message.content
-        print(content)
         json_start = content.find("{")
         json_end = content.rfind("}")
         json_string = content[json_start : json_end + 1] if json_start > -1 and json_end > -1 else content

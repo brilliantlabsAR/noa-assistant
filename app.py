@@ -4,23 +4,22 @@
 # Noa assistant server application. Provides /mm endpoint.
 #
 
+import glob
 from io import BytesIO
 import os
 import traceback
-from typing import Annotated, List
-import glob
+from typing import Annotated, Optional
 
+from fastapi import FastAPI, status, Form, UploadFile, Request
+from fastapi.exceptions import HTTPException
+from fastapi.encoders import jsonable_encoder
 import openai
 from pydantic import BaseModel, ValidationError
 from pydub import AudioSegment
-from fastapi import FastAPI, status, Form, UploadFile, Request
-from pydantic import BaseModel, ValidationError
-from fastapi.exceptions import HTTPException
-from fastapi.encoders import jsonable_encoder
 
-from models import Message, MultimodalRequest, MultimodalResponse
+from models import MultimodalRequest, MultimodalResponse
 from util import process_image
-from assistant import NewAssistant
+from assistant import Assistant
 
 
 ####################################################################################################
@@ -89,6 +88,15 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
         mm: MultimodalRequest = Checker(MultimodalRequest)(data=mm)
         print(mm)
 
+        # Which OpenAI client to use: Brilliant's or one with user-supplied API key?
+        user_openai_key: Optional[str] = mm.openai_key if mm.openai_key is not None and len(mm.openai_key) > 0 else None
+        openai_client = openai.AsyncOpenAI(api_key=user_openai_key) if user_openai_key is not None else request.app.state.openai_client
+
+        # Instantiate a new assistant if either Perplexity API key or OpenAI key is supplied
+        user_perplexity_key: Optional[str] = mm.perplexity_key if mm.perplexity_key is not None and len(mm.perplexity_key) > 0 else None
+        perplexity_key = PERPLEXITY_API_KEY if user_perplexity_key is None else user_perplexity_key
+        assistant = request.app.state.assistant if user_openai_key is None and user_perplexity_key is None else Assistant(client=openai_client, perplexity_api_key=perplexity_key)
+
         # Transcribe voice prompt if it exists
         voice_prompt = ""
         if audio:
@@ -100,7 +108,7 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
                 filepath = get_next_filename()
                 with open(filepath, "wb") as f:
                     f.write(audio_bytes)
-            voice_prompt = await transcribe(client=request.app.state.openai_client, audio_bytes=audio_bytes)
+            voice_prompt = await transcribe(client=openai_client, audio_bytes=audio_bytes)
 
         # Construct final prompt
         if mm.prompt is None or len(mm.prompt) == 0 or mm.prompt.isspace() or mm.prompt == "":
@@ -121,7 +129,7 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
         
         # Call the assistant and deliver the response
         try:
-            assistant_response = await request.app.state.assistant.send_to_assistant(
+            assistant_response = await assistant.send_to_assistant(
                 prompt=user_prompt,
                 flavor_prompt=mm.noa_system_prompt,
                 image_bytes=image_bytes,
@@ -158,5 +166,5 @@ if __name__ == "__main__":
     parser.add_argument("--location", action="store", default="San Francisco", help="Set location address used for all queries (e.g., \"San Francisco\")")
     options = parser.parse_args()
     app.state.openai_client = openai.AsyncOpenAI()
-    app.state.assistant = NewAssistant(client=app.state.openai_client, perplexity_api_key=PERPLEXITY_API_KEY)
+    app.state.assistant = Assistant(client=app.state.openai_client, perplexity_api_key=PERPLEXITY_API_KEY)
     uvicorn.run(app, host="0.0.0.0", port=int(EXPERIMENT_AI_PORT))

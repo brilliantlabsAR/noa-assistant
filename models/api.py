@@ -40,6 +40,8 @@ class MultimodalRequest(BaseModel):
     latitude: Optional[str] = None
     longitude: Optional[str] = None
     generate_image_service: Optional[GenerateImageService] = GenerateImageService.REPLICATE
+    openai_key: Optional[str] = None
+    perplexity_key: Optional[str] = None
 
 class MultimodalResponse(BaseModel):
     user_prompt: str
