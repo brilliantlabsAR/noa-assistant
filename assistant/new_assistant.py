@@ -5,9 +5,8 @@
 #
 # TODO:
 # -----
-# - Fix image tool to perform web search, too
+# - API keys
 # - Image generation
-# - Use speculative tools in _handle_tools
 #
 
 import asyncio
@@ -21,6 +20,7 @@ import openai
 from openai.types.chat import ChatCompletionMessageToolCall
 from openai.types.chat.chat_completion_message_tool_call import Function
 from openai.types.completion_usage import CompletionUsage
+from pydantic import BaseModel
 
 from .response import AssistantResponse
 from .web_search_tool import WebSearchTool
@@ -62,8 +62,11 @@ actually seeing, which means you should never talk about the image or photo.
 The camera is unfortunately VERY low quality but the user is counting on you to interpret the
 blurry, pixelated images. NEVER comment on image quality. Do your best with images.
 
-Make your responses precise. Respond without any preamble when giving translations, just translate
-directly.
+ALWAYS respond with a JSON object with these fields:
+
+response: (String) Respond to user as best you can. Be precise, get to the point, and speak as though you actually see the image.
+web_query: (String) Empty if your "response" answers everything user asked. If web search based on visual description would be more helpful, create a query (e.g. up-to-date, location-based, or product info).
+reverse_image_search: (Bool) True if your web query from description is insufficient and including the *exact* thing user is looking at as visual target is needed.
 """
 
 CONTEXT_SYSTEM_MESSAGE_PREFIX = "## Additional context about the user:"
@@ -106,7 +109,7 @@ Use this tool if user refers to something not identifiable from conversation con
                 "properties": {
                     QUERY_PARAM_NAME: {
                         "type": "string",
-                        "description": "User's query to answer, describing what they want answered, expressed as a command that NEVER refers to the photo or image itself"
+                        "description": "User's query to answer expressed as a command that NEVER refers to the photo or image itself"
                     },
                 },
                 "required": [ QUERY_PARAM_NAME ]
@@ -117,17 +120,39 @@ Use this tool if user refers to something not identifiable from conversation con
 
 tool_function_names = [ tool["function"]["name"] for tool in TOOLS ]
 
+class VisionResponse(BaseModel):
+    response: str
+    web_query: Optional[str] = None
+    reverse_image_search: Optional[bool] = None
+
+@dataclass
+class ToolOutput:
+    output: str
+    safe_for_final_response: bool # whether this can be output directly to user as a response (no second LLM call required)
+
 
 ####################################################################################################
 # Token Accounting
 ####################################################################################################
 
-def accumulate_token_usage(token_usage_by_model: Dict[str, TokenUsage], usage: CompletionUsage):
-    token_usage = TokenUsage(input=usage.prompt_tokens, output=usage.completion_tokens, total=usage.total_tokens)
-    if MODEL not in token_usage_by_model:
-        token_usage_by_model[MODEL] = token_usage
-    else:
-        token_usage_by_model[MODEL].add(token_usage=token_usage)
+def accumulate_token_usage(token_usage_by_model: Dict[str, TokenUsage], **kwargs):
+    if "usage" in kwargs:
+        usage = kwargs["usage"]
+        assert isinstance(usage, CompletionUsage)
+        token_usage = TokenUsage(input=usage.prompt_tokens, output=usage.completion_tokens, total=usage.total_tokens)
+        if MODEL not in token_usage_by_model:
+            token_usage_by_model[MODEL] = token_usage
+        else:
+            token_usage_by_model[MODEL].add(token_usage=token_usage)
+    
+    if "other" in kwargs:
+        other = kwargs["other"]
+        assert isinstance(other, dict)
+        for model, token_usage in other.items():
+            if model not in token_usage_by_model:
+                token_usage_by_model[model] = token_usage
+            else:
+                token_usage_by_model[model].add(token_usage=token_usage)
 
 
 ####################################################################################################
@@ -179,7 +204,9 @@ class NewAssistant:
         t_start = timeit.default_timer()
 
         token_usage_by_model: Dict[str, TokenUsage] = {}
+        speculative_token_usage_by_model: Dict[str, TokenUsage] = {}
         capabilities_used: List[Capability] = []
+        speculative_capabilities_used: List[Capability] = []
         timings: Dict[str, float] = {}
 
         message_history = message_history if message_history else []
@@ -193,11 +220,11 @@ class NewAssistant:
             local_time=local_time
         )
 
-        task_by_tool_name: Dict[str, asyncio.Task[str]] = {}
+        task_by_tool_name: Dict[str, asyncio.Task[ToolOutput]] = {}
         self._create_speculative_tool_calls(
             task_by_tool_name=task_by_tool_name,
-            token_usage_by_model=token_usage_by_model,
-            capabilities_used=capabilities_used,
+            token_usage_by_model=speculative_token_usage_by_model,
+            capabilities_used=speculative_capabilities_used,
             timings=timings,
             query=prompt,
             flavor_prompt=flavor_prompt,
@@ -217,11 +244,10 @@ class NewAssistant:
         t_initial = timeit.default_timer()
         timings["initial"] = t_initial - t_start
 
-        # Determine final output: initial assistant response, one of the speculative tool call 
-        # streams, or second LLM response stream incorporating tool calls
+        # Determine whether we have tool calls to handle
         tool_calls = initial_response_message.tool_calls
         if not tool_calls or len(tool_calls) == 0:
-            # Return initial assistant response directly
+            # No tools: return initial assistant response directly
             t_end = timeit.default_timer()
             timings["first_token"] = t_end - t_start
             timings["total"] = t_end - t_start
@@ -233,10 +259,16 @@ class NewAssistant:
                 image=""
             )
         else:
-            # Determine task to output final response from: one of our speculative tools or a final
-            # LLM response
-            output_task: Optional[asyncio.Task[str]] = self._get_direct_output_task(tool_calls=tool_calls, speculative_task_by_tool_name=task_by_tool_name)
-            if output_task is None:
+            # Tool calls requested. Determine where to output final response from: one of the
+            # speculative tools or a final LLM response
+            print(f"Tools requested: {[ tool_call.function.name for tool_call in tool_calls ]}")
+            output_task: Optional[asyncio.Task[ToolOutput]] = self._get_direct_output_task(tool_calls=tool_calls, speculative_task_by_tool_name=task_by_tool_name)
+            if output_task is not None:
+                # Speculative task will supply output. Make sure to output correct capabilities and
+                # token usage
+                capabilities_used = speculative_capabilities_used
+                accumulate_token_usage(token_usage_by_model=token_usage_by_model, other=speculative_token_usage_by_model)
+            else:
                 # Cannot use a speculative tool, need to perform tool calls and create an output
                 # task
                 messages.append(initial_response_message)
@@ -253,34 +285,49 @@ class NewAssistant:
                     local_time=local_time
                 )
 
-                # If multiple tools, we have to invoke the LLM again in order to produce a coherent
-                # response. Otherwise, we can output the single tool response directly. 
                 if len(tool_tasks) != 1:
+                    # Multiple tools were called, need to wait for them to complete and then invoke
+                    # LLM a second time for a coherent output
                     output_task = await self._complete_tool_response(
                         token_usage_by_model=token_usage_by_model,
                         timings=timings,
                         messages=messages,
                         tool_calls=tool_calls,
-                        tool_tasks=tool_tasks
+                        tool_outputs=await asyncio.gather(*tool_tasks)
                     )
                 else:
-                    print(f"Directly outputting tool response: {tool_calls[0].function.name}")
-                    output_task = tool_tasks[0]
+                    # Single tool: attempt to output it directly, if its output needs no further
+                    # processing
+                    tool_output = await tool_tasks[0]
+                    if tool_output.safe_for_final_response:
+                        print(f"Directly outputting tool response: {tool_calls[0].function.name}")
+                        output_task = self._return_output(output=tool_output)
+                    else:
+                        # Tool returned an output that needs to be processed
+                        output_task = await self._complete_tool_response(
+                            token_usage_by_model=token_usage_by_model,
+                            timings=timings,
+                            messages=messages,
+                            tool_calls=tool_calls,
+                            tool_outputs=[ tool_output ]
+                        )
             
             # Final response
             output = await asyncio.wait_for(output_task, timeout=60)    # will throw on timeout, killing request
+            assert output.safe_for_final_response                       # final output must be safe for direct response
             self._cancel_tasks(task_by_tool_name)                       # ensure any remaining speculative tasks are killed
+            timings["total"] = timeit.default_timer() - t_start
             return AssistantResponse(
                 token_usage_by_model=token_usage_by_model,
                 capabilities_used=capabilities_used,
-                response=output,
+                response=output.output,
                 timings=timings,
                 image=""
             )
         
     def _create_speculative_tool_calls(
         self,
-        task_by_tool_name: Dict[str, asyncio.Task[str]],
+        task_by_tool_name: Dict[str, asyncio.Task[ToolOutput]],
         token_usage_by_model: Dict[str, TokenUsage],
         capabilities_used: List[Capability],
         timings: Dict[str, float],
@@ -312,7 +359,7 @@ class NewAssistant:
         )
 
     @staticmethod
-    def _get_direct_output_task(tool_calls: List[ChatCompletionMessageToolCall], speculative_task_by_tool_name: Dict[str, asyncio.Task[str]]) -> Optional[asyncio.Task[str]]:
+    def _get_direct_output_task(tool_calls: List[ChatCompletionMessageToolCall], speculative_task_by_tool_name: Dict[str, asyncio.Task[ToolOutput]]) -> Optional[asyncio.Task[ToolOutput]]:
         """
         Identifies the speculative tool task, if any, that can be used to answer the user's query
         without performing further tool calls or invoking the LLM again. 
@@ -327,12 +374,12 @@ class NewAssistant:
         ----------
         tool_calls : List[ChatCompletionMessageToolCall]
             Tool call requests.
-        speculative_task_by_tool_name : Dict[str, asyncio.Task[str]]
+        speculative_task_by_tool_name : Dict[str, asyncio.Task[ToolOutput]]
             Speculative tasks already underway.
 
         Returns
         -------
-        Optional[asyncio.Task[str]]
+        Optional[asyncio.Task[ToolOutput]]
             The task to use for output or None if speculative tasks cannot be used.
         """
         tool_names = set([ tool_call.function.name for tool_call in tool_calls ])
@@ -347,12 +394,9 @@ class NewAssistant:
         timings: Dict[str, float],
         messages: List[Message],
         tool_calls: List[ChatCompletionMessageToolCall],
-        tool_tasks: List[asyncio.Task[str]]
-    ) -> asyncio.Task[str]:
-        assert len(tool_calls) == len(tool_tasks)
-
-        # Wait for all tool tasks to complete and get their responses
-        tool_outputs = await asyncio.gather(*tool_tasks)
+        tool_outputs: List[ToolOutput]
+    ) -> asyncio.Task[ToolOutput]:
+        assert len(tool_calls) == len(tool_outputs)
 
         # Tool responses -> messages
         for i in range(len(tool_outputs)):
@@ -361,7 +405,7 @@ class NewAssistant:
                     "tool_call_id": tool_calls[i].id,
                     "role": "tool",
                     "name": tool_calls[i].function.name,
-                    "content": tool_outputs[i]
+                    "content": tool_outputs[i].output
                 }
             )
 
@@ -373,7 +417,7 @@ class NewAssistant:
         token_usage_by_model: Dict[str, TokenUsage],
         timings: Dict[str, float],
         messages: List[Message]
-    ) -> str:
+    ) -> ToolOutput:
         # Second (and final) LLM call
         t1 = timeit.default_timer()
         response = await self._client.chat.completions.create(
@@ -382,21 +426,21 @@ class NewAssistant:
         )
         accumulate_token_usage(token_usage_by_model=token_usage_by_model, usage=response.usage)
         timings["final"] = timeit.default_timer() - t1
-        return response.choices[0].message.content
+        return ToolOutput(output=response.choices[0].message.content, safe_for_final_response=True)
         
     async def _handle_tools(
         self,
         token_usage_by_model: Dict[str, TokenUsage],
         capabilities_used: List[Capability],
         timings: Dict[str, float],
-        task_by_tool_name: Dict[str, asyncio.Task[str]],
+        task_by_tool_name: Dict[str, asyncio.Task[ToolOutput]],
         tool_calls: List[ChatCompletionMessageToolCall],
         flavor_prompt: str | None,
         message_history: List[Message],
         image_bytes: bytes | None,
         location_address: str | None,
         local_time: str | None
-    ) -> List[asyncio.Task[str]]:
+    ) -> List[asyncio.Task[ToolOutput]]:
         """
         The created tasks will mutate oken_usage_by_model, capabilities_used, and timings.
         """
@@ -439,7 +483,7 @@ class NewAssistant:
         image_bytes: bytes | None,
         location_address: str | None,
         local_time: str | None
-    ) -> asyncio.Task[str]:
+    ) -> asyncio.Task[ToolOutput]:
         tool_functions_by_name = {
             SEARCH_TOOL_NAME: self._handle_web_search_tool,
             PHOTO_TOOL_NAME: self._handle_photo_tool,
@@ -465,11 +509,18 @@ class NewAssistant:
         # Create tool task
         tool_name = tool_call.function.name
         tool_function = tool_functions_by_name[tool_name]
+        print(f"Created tool task: name={tool_name}, args={tool_call.function.arguments}")
         return asyncio.create_task(tool_function(**args))
     
     @staticmethod
-    async def _return_tool_error_message(message: str) -> str:
-        return message 
+    async def _return_tool_error_message(message: str) -> ToolOutput:
+        # These tool error messages are not intended for user consumption and must be processed by
+        # a second LLM call
+        return ToolOutput(output=message, safe_for_final_response=False) 
+    
+    @staticmethod
+    async def _return_output(output: ToolOutput) -> ToolOutput:
+        return output
     
     async def _handle_photo_tool(
         self,
@@ -482,7 +533,7 @@ class NewAssistant:
         image_bytes: bytes | None,
         location_address: str | None,
         local_time: str | None
-    ) -> str:
+    ) -> ToolOutput:
         t_start = timeit.default_timer()
 
         # Create messages for GPT w/ image. We can reuse our system prompt here.
@@ -515,8 +566,45 @@ class NewAssistant:
         t_end = timeit.default_timer()
         timings["vision"] = t_end - t_start
         capabilities_used.append(Capability.VISION)
-        return response.choices[0].message.content
 
+        # Parse structured output. Response expected to be JSON but may be wrapped with 
+        # ```json ... ```
+        content = response.choices[0].message.content
+        print(content)
+        json_start = content.find("{")
+        json_end = content.rfind("}")
+        json_string = content[json_start : json_end + 1] if json_start > -1 and json_end > -1 else content
+        try:
+            vision_response = VisionResponse.model_validate_json(json_data=json_string)
+            vision_response.reverse_image_search = vision_response.reverse_image_search is not None and vision_response.reverse_image_search == True
+            if len(vision_response.web_query) == 0 and vision_response.reverse_image_search:
+                # If no web query output but reverse image search asked for, just use user query
+                # directly. This is sub-optimal and it would be better to figure out a way to ensure
+                # web_query is generated when reverse_image_search is true.
+                vision_response.web_query = query
+        except Exception as e:
+            print(f"Error: Unable to parse vision response: {e}")
+            return ToolOutput(output="Error: Unable to parse vision tool response. Tell user a problem interpreting the image occurred and ask them to try again.", safe_for_final_response=False)
+
+        # If no web search needed, return response directly (safe to output to user)
+        if vision_response.web_query is None or len(vision_response.web_query) == 0:
+            return ToolOutput(output=vision_response.response, safe_for_final_response=True)
+        
+        # Perform web search and produce a synthesized response telling assistant where each piece of
+        # information came from. Web search will lack important vision information. We need to return
+        # both and have the assistant figure out which info to use.
+        web_result = await self._handle_web_search_tool(
+            token_usage_by_model=token_usage_by_model,
+            capabilities_used=capabilities_used,
+            timings=timings,
+            query=vision_response.web_query,
+            flavor_prompt=flavor_prompt,
+            message_history=message_history,
+            image_bytes=None,
+            location_address=location_address,
+            local_time=local_time
+        )
+        return ToolOutput(output=f"HERE IS WHAT YOU SEE: {vision_response.response}\nEXTRA INFO FROM WEB: {web_result}", safe_for_final_response=False)
     
     async def _handle_web_search_tool(
         self,
@@ -529,7 +617,7 @@ class NewAssistant:
         image_bytes: bytes | None,
         location_address: str | None,
         local_time: str | None
-    ):
+    ) -> ToolOutput:
         t_start = timeit.default_timer()
         output = await self._web_tool.search_web(
             token_usage_by_model=token_usage_by_model,
@@ -542,7 +630,7 @@ class NewAssistant:
         t_end = timeit.default_timer()
         timings["web_search_tool"] = t_end - t_start
         capabilities_used.append(Capability.WEB_SEARCH)
-        return output
+        return ToolOutput(output=output, safe_for_final_response=True)
 
     @staticmethod
     def _validate_tool_args(tool_call: ChatCompletionMessageToolCall) -> Dict[str, Any]:
@@ -577,13 +665,13 @@ class NewAssistant:
         return args
 
     @staticmethod
-    def _cancel_tasks(task_by_tool_name: Dict[str, asyncio.Task[str]]):
+    def _cancel_tasks(task_by_tool_name: Dict[str, asyncio.Task[ToolOutput]]):
         for tool_name, task in list(task_by_tool_name.items()):
             task.cancel()
             del task_by_tool_name[tool_name]
    
     @staticmethod
-    def _cancel_task(task_by_tool_name: Dict[str, asyncio.Task[str]], tool_name: str):
+    def _cancel_task(task_by_tool_name: Dict[str, asyncio.Task[ToolOutput]], tool_name: str):
         task = task_by_tool_name.get(tool_name)
         if task is not None:
             task.cancel()
