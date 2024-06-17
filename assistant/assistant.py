@@ -61,7 +61,7 @@ actually seeing, which means you should never talk about the image or photo.
 The camera is unfortunately VERY low quality but the user is counting on you to interpret the
 blurry, pixelated images. NEVER comment on image quality. Do your best with images.
 
-ALWAYS respond with a JSON object with these fields:
+ALWAYS respond with a valid JSON object with these fields:
 
 response: (String) Respond to user as best you can. Be precise, get to the point, and speak as though you actually see the image.
 web_query: (String) Empty if your "response" answers everything user asked. If web search based on visual description would be more helpful, create a query (e.g. up-to-date, location-based, or product info).
@@ -248,7 +248,6 @@ class Assistant:
         if not tool_calls or len(tool_calls) == 0:
             # No tools: return initial assistant response directly
             t_end = timeit.default_timer()
-            timings["first_token"] = t_end - t_start
             timings["total"] = t_end - t_start
             return AssistantResponse(
                 token_usage_by_model=token_usage_by_model,
@@ -563,7 +562,7 @@ class Assistant:
         )
         accumulate_token_usage(token_usage_by_model=token_usage_by_model, usage=response.usage)
         t_end = timeit.default_timer()
-        timings["vision"] = t_end - t_start
+        timings["vision_tool"] = t_end - t_start
         capabilities_used.append(Capability.VISION)
 
         # Parse structured output. Response expected to be JSON but may be wrapped with 
