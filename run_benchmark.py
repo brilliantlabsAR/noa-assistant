@@ -140,7 +140,7 @@ class ReportGenerator:
 
         # Timings
         try:
-            self._total_times.append(float(response.timings["total_time"]))
+            self._total_times.append(float(response.timings["total"]))
         except:
             pass
 
