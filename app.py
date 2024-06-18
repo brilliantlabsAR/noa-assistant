@@ -10,6 +10,7 @@ import os
 import traceback
 from typing import Annotated, Optional
 
+import anthropic
 from fastapi import FastAPI, status, Form, UploadFile, Request
 from fastapi.exceptions import HTTPException
 from fastapi.encoders import jsonable_encoder
@@ -19,7 +20,7 @@ from pydub import AudioSegment
 
 from models import MultimodalRequest, MultimodalResponse
 from util import process_image
-from assistant import Assistant
+from assistant import Assistant, AssistantVisionTool
 
 
 ####################################################################################################
@@ -95,7 +96,7 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
         # Instantiate a new assistant if either Perplexity API key or OpenAI key is supplied
         user_perplexity_key: Optional[str] = mm.perplexity_key if mm.perplexity_key is not None and len(mm.perplexity_key) > 0 else None
         perplexity_key = PERPLEXITY_API_KEY if user_perplexity_key is None else user_perplexity_key
-        assistant = request.app.state.assistant if user_openai_key is None and user_perplexity_key is None else Assistant(client=openai_client, perplexity_api_key=perplexity_key)
+        assistant = request.app.state.assistant if user_openai_key is None and user_perplexity_key is None else Assistant(openai_client=openai_client, perplexity_api_key=perplexity_key)
 
         # Transcribe voice prompt if it exists
         voice_prompt = ""
@@ -162,9 +163,23 @@ if __name__ == "__main__":
     import argparse
     import uvicorn
 
+    vision_tool_from_arg = {
+        "gpt-4o": AssistantVisionTool.GPT4O,
+        "haiku": AssistantVisionTool.HAIKU
+    }
+
     parser = argparse.ArgumentParser()
+    parser.add_argument("--vision-tool", action="store", default="gpt-4o", choices=list(vision_tool_from_arg.keys()), help="Vision tool to use (gpt-4o or haiku)")
     parser.add_argument("--location", action="store", default="San Francisco", help="Set location address used for all queries (e.g., \"San Francisco\")")
     options = parser.parse_args()
     app.state.openai_client = openai.AsyncOpenAI()
-    app.state.assistant = Assistant(client=app.state.openai_client, perplexity_api_key=PERPLEXITY_API_KEY)
+    app.state.anthropic_client = anthropic.AsyncAnthropic()
+    vision_tool = vision_tool_from_arg[options.vision_tool]
+    app.state.assistant = Assistant(
+        openai_client=app.state.openai_client,
+        anthropic_client=app.state.anthropic_client,
+        perplexity_api_key=PERPLEXITY_API_KEY,
+        vision_tool=vision_tool
+    )
+    print(f"Using vision tool: {vision_tool.value}")
     uvicorn.run(app, host="0.0.0.0", port=int(EXPERIMENT_AI_PORT))

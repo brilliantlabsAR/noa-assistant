@@ -11,19 +11,21 @@
 import asyncio
 import base64
 from dataclasses import dataclass
+from enum import Enum
 import json
 import timeit
 from typing import Any, Dict, List, Optional
 
+import anthropic
 import openai
 from openai.types.chat import ChatCompletionMessageToolCall
 from openai.types.chat.chat_completion_message_tool_call import Function
-from openai.types.completion_usage import CompletionUsage
-from pydantic import BaseModel
 
+from .claude_vision import vision_query_claude
+from .gpt_vision import vision_query_gpt
 from .response import AssistantResponse
 from .web_search_tool import WebSearchTool
-from models import Capability, Message, Role, TokenUsage
+from models import Capability, Message, Role, TokenUsage, accumulate_token_usage
 from util import detect_media_type
 
 
@@ -51,22 +53,6 @@ Make your responses precise. Respond without any preamble when giving translatio
 directly.
 """
 
-VISION_SYSTEM_MESSAGE = """
-You are Noa, a smart personal AI assistant inside the user's AR smart glasses that answers all user
-queries and questions. You have access to a photo from the smart glasses camera of what the user was
-seeing at the time they spoke but you NEVER mention the photo or image and instead respond as if you
-are actually seeing.
-
-The camera is unfortunately VERY low quality but the user is counting on you to interpret the
-blurry, pixelated images. NEVER comment on image quality. Do your best with images.
-
-ALWAYS respond with a valid JSON object with these fields:
-
-response: (String) Respond to user as best you can. Be precise, get to the point, and speak as though you actually see the image.
-web_query: (String) Empty if your "response" answers everything user asked. If web search based on visual description would be more helpful, create a query (e.g. up-to-date, location-based, or product info).
-reverse_image_search: (Bool) True if your web query from description is insufficient and including the *exact* thing user is looking at as visual target is needed.
-"""
-
 CONTEXT_SYSTEM_MESSAGE_PREFIX = "## Additional context about the user:"
 
 
@@ -75,7 +61,7 @@ CONTEXT_SYSTEM_MESSAGE_PREFIX = "## Additional context about the user:"
 ####################################################################################################
 
 SEARCH_TOOL_NAME = "web_search"
-PHOTO_TOOL_NAME = "analyze_photo"
+VISION_TOOL_NAME = "analyze_photo"
 QUERY_PARAM_NAME = "query"
 
 TOOLS = [
@@ -99,7 +85,7 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": PHOTO_TOOL_NAME,
+            "name": VISION_TOOL_NAME,
             "description": """Analyzes or describes the photo you have from the user's current perspective.
 Use this tool if user refers to something not identifiable from conversation context, such as with a demonstrative pronoun.""",
             "parameters": {
@@ -118,11 +104,6 @@ Use this tool if user refers to something not identifiable from conversation con
 
 tool_function_names = [ tool["function"]["name"] for tool in TOOLS ]
 
-class VisionResponse(BaseModel):
-    response: str
-    web_query: Optional[str] = None
-    reverse_image_search: Optional[bool] = None
-
 @dataclass
 class ToolOutput:
     output: str
@@ -130,36 +111,24 @@ class ToolOutput:
 
 
 ####################################################################################################
-# Token Accounting
-####################################################################################################
-
-def accumulate_token_usage(token_usage_by_model: Dict[str, TokenUsage], **kwargs):
-    if "usage" in kwargs:
-        usage = kwargs["usage"]
-        assert isinstance(usage, CompletionUsage)
-        token_usage = TokenUsage(input=usage.prompt_tokens, output=usage.completion_tokens, total=usage.total_tokens)
-        if MODEL not in token_usage_by_model:
-            token_usage_by_model[MODEL] = token_usage
-        else:
-            token_usage_by_model[MODEL].add(token_usage=token_usage)
-    
-    if "other" in kwargs:
-        other = kwargs["other"]
-        assert isinstance(other, dict)
-        for model, token_usage in other.items():
-            if model not in token_usage_by_model:
-                token_usage_by_model[model] = token_usage
-            else:
-                token_usage_by_model[model].add(token_usage=token_usage)
-
-
-####################################################################################################
 # Assistant
 ####################################################################################################
 
+class AssistantVisionTool(str, Enum):
+    GPT4O = "gpt-4o"
+    HAIKU = "haiku"
+
 class Assistant:
-    def __init__(self, client: openai.AsyncOpenAI, perplexity_api_key: str):
-        self._client = client
+    def __init__(
+        self,
+        openai_client: openai.AsyncOpenAI,
+        anthropic_client: anthropic.AsyncAnthropic,
+        perplexity_api_key: str,
+        vision_tool: AssistantVisionTool
+    ):
+        self._client = openai_client
+        self._anthropic_client = anthropic_client
+        self._vision_tool = vision_tool
         self._web_tool = WebSearchTool(api_key=perplexity_api_key)
     
     async def send_to_assistant(
@@ -237,7 +206,7 @@ class Assistant:
             tools=TOOLS,
             tool_choice="auto"
         )
-        accumulate_token_usage(token_usage_by_model=token_usage_by_model, usage=initial_response.usage)
+        accumulate_token_usage(token_usage_by_model=token_usage_by_model, usage=initial_response.usage, model=MODEL)
         initial_response_message = initial_response.choices[0].message
         t_initial = timeit.default_timer()
         timings["initial"] = t_initial - t_start
@@ -248,6 +217,7 @@ class Assistant:
             # No tools: return initial assistant response directly
             t_end = timeit.default_timer()
             timings["total"] = t_end - t_start
+            self._cancel_tasks(task_by_tool_name)
             return AssistantResponse(
                 token_usage_by_model=token_usage_by_model,
                 capabilities_used=[ Capability.ASSISTANT_KNOWLEDGE ],
@@ -260,11 +230,10 @@ class Assistant:
             # speculative tools or a final LLM response
             print(f"Tools requested: {[ tool_call.function.name for tool_call in tool_calls ]}")
             output_task: Optional[asyncio.Task[ToolOutput]] = self._get_direct_output_task(tool_calls=tool_calls, speculative_task_by_tool_name=task_by_tool_name)
+            using_speculative_output_task = False
             if output_task is not None:
-                # Speculative task will supply output. Make sure to output correct capabilities and
-                # token usage
-                capabilities_used = speculative_capabilities_used
-                accumulate_token_usage(token_usage_by_model=token_usage_by_model, other=speculative_token_usage_by_model)
+                # Speculative task will supply output
+                using_speculative_output_task = True
             else:
                 # Cannot use a speculative tool, need to perform tool calls and create an output
                 # task
@@ -311,6 +280,10 @@ class Assistant:
             
             # Final response
             output = await asyncio.wait_for(output_task, timeout=60)    # will throw on timeout, killing request
+            if using_speculative_output_task:
+                # Make sure to output correct capabilities and token usage from speculative task
+                capabilities_used = speculative_capabilities_used
+                accumulate_token_usage(token_usage_by_model=token_usage_by_model, other=speculative_token_usage_by_model, model=MODEL)
             assert output.safe_for_final_response                       # final output must be safe for direct response
             self._cancel_tasks(task_by_tool_name)                       # ensure any remaining speculative tasks are killed
             timings["total"] = timeit.default_timer() - t_start
@@ -421,7 +394,7 @@ class Assistant:
             model=MODEL,
             messages=messages
         )
-        accumulate_token_usage(token_usage_by_model=token_usage_by_model, usage=response.usage)
+        accumulate_token_usage(token_usage_by_model=token_usage_by_model, usage=response.usage, model=MODEL)
         timings["final"] = timeit.default_timer() - t1
         return ToolOutput(output=response.choices[0].message.content, safe_for_final_response=True)
         
@@ -483,7 +456,7 @@ class Assistant:
     ) -> asyncio.Task[ToolOutput]:
         tool_functions_by_name = {
             SEARCH_TOOL_NAME: self._handle_web_search_tool,
-            PHOTO_TOOL_NAME: self._handle_photo_tool,
+            VISION_TOOL_NAME: self._handle_vision_tool,
         }
         # Validate tool
         if tool_call.function.name not in tool_functions_by_name:
@@ -519,7 +492,7 @@ class Assistant:
     async def _return_output(output: ToolOutput) -> ToolOutput:
         return output
     
-    async def _handle_photo_tool(
+    async def _handle_vision_tool(
         self,
         token_usage_by_model: Dict[str, TokenUsage],
         capabilities_used: List[Capability],
@@ -533,55 +506,37 @@ class Assistant:
     ) -> ToolOutput:
         t_start = timeit.default_timer()
 
-        # Create messages for GPT w/ image. No message history or extra context for this tool, as we
-        # will rely on second LLM call. Passing in message history and extra context necessary to
-        # allow direct tool output seems to cause this to take longer, hence we don't permit it.
-        messages = []
-        messages = self._insert_system_message(messages=messages, system_message=VISION_SYSTEM_MESSAGE)
-        user_message = {
-            "role": "user",
-            "content": [
-                { "type": "text", "text": query }
-            ]
-        }
+        image_base64: Optional[str] = None
+        media_type: Optional[str] = None
         if image_bytes:
             image_base64 = base64.b64encode(image_bytes).decode("utf-8")
             media_type = detect_media_type(image_bytes=image_bytes)
-            user_message["content"].append({ "type": "image_url", "image_url": { "url": f"data:{media_type};base64,{image_base64}" } })
-        messages.append(user_message)
 
-        # Call GPT
-        response = await self._client.chat.completions.create(
-            model=MODEL,
-            messages=messages,
-        )
-        accumulate_token_usage(token_usage_by_model=token_usage_by_model, usage=response.usage)
+        if self._vision_tool == AssistantVisionTool.GPT4O:
+            output = await vision_query_gpt(
+                client=self._client,
+                token_usage_by_model=token_usage_by_model,
+                query=query,
+                image_base64=image_base64,
+                media_type=media_type
+            )
+        else:
+            output = await vision_query_claude(
+                client=self._anthropic_client,
+                token_usage_by_model=token_usage_by_model,
+                query=query,
+                image_base64=image_base64,
+                media_type=media_type
+            )
+
         t_end = timeit.default_timer()
         timings["vision_tool"] = t_end - t_start
         capabilities_used.append(Capability.VISION)
 
-        # Parse structured output. Response expected to be JSON but may be wrapped with 
-        # ```json ... ```
-        content = response.choices[0].message.content
-        json_start = content.find("{")
-        json_end = content.rfind("}")
-        json_string = content[json_start : json_end + 1] if json_start > -1 and json_end > -1 else content
-        try:
-            vision_response = VisionResponse.model_validate_json(json_data=json_string)
-            vision_response.reverse_image_search = vision_response.reverse_image_search is not None and vision_response.reverse_image_search == True
-            if len(vision_response.web_query) == 0 and vision_response.reverse_image_search:
-                # If no web query output but reverse image search asked for, just use user query
-                # directly. This is sub-optimal and it would be better to figure out a way to ensure
-                # web_query is generated when reverse_image_search is true.
-                vision_response.web_query = query
-        except Exception as e:
-            print(f"Error: Unable to parse vision response: {e}")
-            return ToolOutput(output="Error: Unable to parse vision tool response. Tell user a problem interpreting the image occurred and ask them to try again.", safe_for_final_response=False)
-
-        # If no web search needed, return response directly (because of lack of message history, we
-        # cannot output this directly to user)
-        if vision_response.web_query is None or len(vision_response.web_query) == 0:
-            return ToolOutput(output=vision_response.response, safe_for_final_response=False)
+        if output.web_query is None:
+            # We never allow vision tool to be final response because it does not have sufficient
+            # context to answer on its own
+            return ToolOutput(output=output.response, safe_for_final_response=False)    
         
         # Perform web search and produce a synthesized response telling assistant where each piece of
         # information came from. Web search will lack important vision information. We need to return
@@ -590,14 +545,14 @@ class Assistant:
             token_usage_by_model=token_usage_by_model,
             capabilities_used=capabilities_used,
             timings=timings,
-            query=vision_response.web_query,
+            query=output.web_query,
             flavor_prompt=flavor_prompt,
             message_history=message_history,
             image_bytes=None,
             location_address=location_address,
             local_time=local_time
         )
-        return ToolOutput(output=f"HERE IS WHAT YOU SEE: {vision_response.response}\nEXTRA INFO FROM WEB: {web_result}", safe_for_final_response=False)
+        return ToolOutput(output=f"HERE IS WHAT YOU SEE: {output.response}\nEXTRA INFO FROM WEB: {web_result}", safe_for_final_response=False)
     
     async def _handle_web_search_tool(
         self,

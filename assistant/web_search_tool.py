@@ -4,15 +4,14 @@
 # Web search tool implementation based on Perplexity. Cannot perform searches with images.
 #
 
-import asyncio
 import timeit
 from typing import Dict, List
 
 import aiohttp
+from openai.types.completion_usage import CompletionUsage
 from pydantic import BaseModel
 
-from .response import AssistantResponse
-from models import Capability, Role, Message, TokenUsage
+from models import Role, Message, TokenUsage, accumulate_token_usage
 
 MODEL = "llama-3-sonar-small-32k-online"
 
@@ -26,16 +25,11 @@ class MessageChoices(BaseModel):
     message: PerplexityMessage = None
     delta: PerplexityMessage = None
 
-class Usage(BaseModel):
-    prompt_tokens: int = None
-    completion_tokens: int = None
-    total_tokens: int = None
-
 class PerplexityResponse(BaseModel):
     id: str = None
     model: str = None
     created: int = None
-    usage: Usage = None
+    usage: CompletionUsage = None
     object: str = None
     choices: List[MessageChoices] = None
     
@@ -126,15 +120,7 @@ class WebSearchTool:
 
             # Accumulate token count
             if usage is not None:
-                token_usage = TokenUsage(
-                    input=usage.prompt_tokens,
-                    output=usage.completion_tokens,
-                    total=usage.total_tokens
-                )
-                if MODEL not in token_usage_by_model:
-                    token_usage_by_model[MODEL] = token_usage
-                else:
-                    token_usage_by_model[MODEL].add(token_usage=token_usage)
+                accumulate_token_usage(token_usage_by_model=token_usage_by_model, usage=usage, model=MODEL)
 
             # Return final, accumulated response
             return accumulated_response
