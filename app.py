@@ -123,8 +123,8 @@ def get_web_search_provider(app, mm: MultimodalRequest) -> WebSearch:
         return DataForSEOWebSearch(save_to_file=options.save, max_search_results=mm.max_search_results)
     elif mm.search_api == SearchAPI.PERPLEXITY:
         if mm.perplexity_key and len(mm.perplexity_key) > 0:
-            return PerplexityWebSearch(api_key=mm.perplexity_key, max_search_results=mm.max_search_results)
-        return PerplexityWebSearch(api_key=PERPLEXITY_API_KEY, max_search_results=mm.max_search_results)
+            return PerplexityWebSearch(api_key=mm.perplexity_key)
+        return PerplexityWebSearch(api_key=PERPLEXITY_API_KEY)
 
     # Default provider
     return app.state.web_search
