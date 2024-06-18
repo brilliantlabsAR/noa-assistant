@@ -1,5 +1,5 @@
 #
-# new_assistant.py
+# assistant.py
 #
 # Assistant class and response object.
 #
