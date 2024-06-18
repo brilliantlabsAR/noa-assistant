@@ -54,9 +54,8 @@ directly.
 VISION_SYSTEM_MESSAGE = """
 You are Noa, a smart personal AI assistant inside the user's AR smart glasses that answers all user
 queries and questions. You have access to a photo from the smart glasses camera of what the user was
-seeing at the time they spoke but it is important that the user believes you can actually see. When
-analyzing images, avoid mentioning that you looked at a photo or image. Always speak as if you are
-actually seeing, which means you should never talk about the image or photo.
+seeing at the time they spoke but you NEVER mention the photo or image and instead respond as if you
+are actually seeing.
 
 The camera is unfortunately VERY low quality but the user is counting on you to interpret the
 blurry, pixelated images. NEVER comment on image quality. Do your best with images.
@@ -534,8 +533,10 @@ class Assistant:
     ) -> ToolOutput:
         t_start = timeit.default_timer()
 
-        # Create messages for GPT w/ image. We can reuse our system prompt here.
-        messages = self._truncate_message_history(message_history=message_history)
+        # Create messages for GPT w/ image. No message history or extra context for this tool, as we
+        # will rely on second LLM call. Passing in message history and extra context necessary to
+        # allow direct tool output seems to cause this to take longer, hence we don't permit it.
+        messages = []
         messages = self._insert_system_message(messages=messages, system_message=VISION_SYSTEM_MESSAGE)
         user_message = {
             "role": "user",
@@ -548,12 +549,6 @@ class Assistant:
             media_type = detect_media_type(image_bytes=image_bytes)
             user_message["content"].append({ "type": "image_url", "image_url": { "url": f"data:{media_type};base64,{image_base64}" } })
         messages.append(user_message)
-        messages = self._inject_extra_context(
-            messages=messages,
-            flavor_prompt=flavor_prompt,
-            location_address=location_address,
-            local_time=local_time
-        )
 
         # Call GPT
         response = await self._client.chat.completions.create(
@@ -583,9 +578,10 @@ class Assistant:
             print(f"Error: Unable to parse vision response: {e}")
             return ToolOutput(output="Error: Unable to parse vision tool response. Tell user a problem interpreting the image occurred and ask them to try again.", safe_for_final_response=False)
 
-        # If no web search needed, return response directly (safe to output to user)
+        # If no web search needed, return response directly (because of lack of message history, we
+        # cannot output this directly to user)
         if vision_response.web_query is None or len(vision_response.web_query) == 0:
-            return ToolOutput(output=vision_response.response, safe_for_final_response=True)
+            return ToolOutput(output=vision_response.response, safe_for_final_response=False)
         
         # Perform web search and produce a synthesized response telling assistant where each piece of
         # information came from. Web search will lack important vision information. We need to return
