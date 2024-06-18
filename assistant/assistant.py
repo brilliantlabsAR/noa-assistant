@@ -25,6 +25,7 @@ from .claude_vision import vision_query_claude
 from .gpt_vision import vision_query_gpt
 from .response import AssistantResponse
 from .web_search_tool import WebSearchTool
+from generate_image.replicate import ReplicateGenerateImage
 from models import Capability, Message, Role, TokenUsage, accumulate_token_usage
 from util import detect_media_type
 
@@ -64,6 +65,9 @@ SEARCH_TOOL_NAME = "web_search"
 VISION_TOOL_NAME = "analyze_photo"
 QUERY_PARAM_NAME = "query"
 
+IMAGE_GENERATION_TOOL_NAME = "generate_image"
+IMAGE_GENERATION_PARAM_NAME = "description"
+
 TOOLS = [
     {
         "type": "function",
@@ -100,15 +104,32 @@ Use this tool if user refers to something not identifiable from conversation con
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": IMAGE_GENERATION_TOOL_NAME,
+            "description": """Generates an image based on a description or prompt.""",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    IMAGE_GENERATION_PARAM_NAME: {
+                        "type": "string",
+                        "description": "description of the image to generate"
+                    },
+                },
+                "required": [ IMAGE_GENERATION_PARAM_NAME ]
+            },
+        },
+    }
 ] 
 
 tool_function_names = [ tool["function"]["name"] for tool in TOOLS ]
 
 @dataclass
 class ToolOutput:
-    output: str
+    text: str
     safe_for_final_response: bool # whether this can be output directly to user as a response (no second LLM call required)
-
+    image_base64: Optional[str] = None
 
 ####################################################################################################
 # Assistant
@@ -211,26 +232,36 @@ class Assistant:
         t_initial = timeit.default_timer()
         timings["initial"] = t_initial - t_start
 
+        # Output
+        output_task: Optional[asyncio.Task[ToolOutput]] = None
+        using_speculative_output_task = False
+
         # Determine whether we have tool calls to handle
-        tool_calls = initial_response_message.tool_calls
-        if not tool_calls or len(tool_calls) == 0:
+        tool_calls: List[ChatCompletionMessageToolCall] = [] if initial_response_message.tool_calls is None else initial_response_message.tool_calls
+        image_generation_description = self._get_image_generation_description(tool_calls=tool_calls, user_prompt=prompt)
+        if len(tool_calls) == 0:
             # No tools: return initial assistant response directly
-            t_end = timeit.default_timer()
-            timings["total"] = t_end - t_start
-            self._cancel_tasks(task_by_tool_name)
-            return AssistantResponse(
+            capabilities_used.append(Capability.ASSISTANT_KNOWLEDGE)
+            output_task = self._return_output(output=ToolOutput(text=initial_response_message.content, safe_for_final_response=True))
+        elif image_generation_description is not None:
+            # Special case: image generation
+            tool_output = await self._handle_image_generation_tool(
                 token_usage_by_model=token_usage_by_model,
-                capabilities_used=[ Capability.ASSISTANT_KNOWLEDGE ],
-                response=initial_response_message.content,
+                capabilities_used=capabilities_used,
                 timings=timings,
-                image=""
+                description=image_generation_description,
+                flavor_prompt=flavor_prompt,
+                message_history=message_history,
+                image_bytes=image_bytes,
+                location_address=location_address,
+                local_time=local_time
             )
+            output_task = self._return_output(output=tool_output)
         else:
             # Tool calls requested. Determine where to output final response from: one of the
             # speculative tools or a final LLM response
             print(f"Tools requested: {[ tool_call.function.name for tool_call in tool_calls ]}")
-            output_task: Optional[asyncio.Task[ToolOutput]] = self._get_direct_output_task(tool_calls=tool_calls, speculative_task_by_tool_name=task_by_tool_name)
-            using_speculative_output_task = False
+            output_task = self._get_direct_output_task(tool_calls=tool_calls, speculative_task_by_tool_name=task_by_tool_name)
             if output_task is not None:
                 # Speculative task will supply output
                 using_speculative_output_task = True
@@ -278,22 +309,22 @@ class Assistant:
                             tool_outputs=[ tool_output ]
                         )
             
-            # Final response
-            output = await asyncio.wait_for(output_task, timeout=60)    # will throw on timeout, killing request
-            if using_speculative_output_task:
-                # Make sure to output correct capabilities and token usage from speculative task
-                capabilities_used = speculative_capabilities_used
-                accumulate_token_usage(token_usage_by_model=token_usage_by_model, other=speculative_token_usage_by_model, model=MODEL)
-            assert output.safe_for_final_response                       # final output must be safe for direct response
-            self._cancel_tasks(task_by_tool_name)                       # ensure any remaining speculative tasks are killed
-            timings["total"] = timeit.default_timer() - t_start
-            return AssistantResponse(
-                token_usage_by_model=token_usage_by_model,
-                capabilities_used=capabilities_used,
-                response=output.output,
-                timings=timings,
-                image=""
-            )
+        # Final response
+        output = await asyncio.wait_for(output_task, timeout=60)    # will throw on timeout, killing request
+        if using_speculative_output_task:
+            # Make sure to output correct capabilities and token usage from speculative task
+            capabilities_used = speculative_capabilities_used
+            accumulate_token_usage(token_usage_by_model=token_usage_by_model, other=speculative_token_usage_by_model, model=MODEL)
+        assert output.safe_for_final_response                       # final output must be safe for direct response
+        self._cancel_tasks(task_by_tool_name)                       # ensure any remaining speculative tasks are killed
+        timings["total"] = timeit.default_timer() - t_start
+        return AssistantResponse(
+            token_usage_by_model=token_usage_by_model,
+            capabilities_used=capabilities_used,
+            response=output.text,
+            timings=timings,
+            image="" if output.image_base64 is None else output.image_base64
+        )
         
     def _create_speculative_tool_calls(
         self,
@@ -375,7 +406,7 @@ class Assistant:
                     "tool_call_id": tool_calls[i].id,
                     "role": "tool",
                     "name": tool_calls[i].function.name,
-                    "content": tool_outputs[i].output
+                    "content": tool_outputs[i].text
                 }
             )
 
@@ -396,7 +427,7 @@ class Assistant:
         )
         accumulate_token_usage(token_usage_by_model=token_usage_by_model, usage=response.usage, model=MODEL)
         timings["final"] = timeit.default_timer() - t1
-        return ToolOutput(output=response.choices[0].message.content, safe_for_final_response=True)
+        return ToolOutput(text=response.choices[0].message.content, safe_for_final_response=True)
         
     async def _handle_tools(
         self,
@@ -456,7 +487,7 @@ class Assistant:
     ) -> asyncio.Task[ToolOutput]:
         tool_functions_by_name = {
             SEARCH_TOOL_NAME: self._handle_web_search_tool,
-            VISION_TOOL_NAME: self._handle_vision_tool,
+            VISION_TOOL_NAME: self._handle_vision_tool
         }
         # Validate tool
         if tool_call.function.name not in tool_functions_by_name:
@@ -486,7 +517,7 @@ class Assistant:
     async def _return_tool_error_message(message: str) -> ToolOutput:
         # These tool error messages are not intended for user consumption and must be processed by
         # a second LLM call
-        return ToolOutput(output=message, safe_for_final_response=False) 
+        return ToolOutput(text=message, safe_for_final_response=False) 
     
     @staticmethod
     async def _return_output(output: ToolOutput) -> ToolOutput:
@@ -536,7 +567,7 @@ class Assistant:
         if output.web_query is None:
             # We never allow vision tool to be final response because it does not have sufficient
             # context to answer on its own
-            return ToolOutput(output=output.response, safe_for_final_response=False)    
+            return ToolOutput(text=output.response, safe_for_final_response=False)    
         
         # Perform web search and produce a synthesized response telling assistant where each piece of
         # information came from. Web search will lack important vision information. We need to return
@@ -552,7 +583,7 @@ class Assistant:
             location_address=location_address,
             local_time=local_time
         )
-        return ToolOutput(output=f"HERE IS WHAT YOU SEE: {output.response}\nEXTRA INFO FROM WEB: {web_result}", safe_for_final_response=False)
+        return ToolOutput(text=f"HERE IS WHAT YOU SEE: {output.response}\nEXTRA INFO FROM WEB: {web_result}", safe_for_final_response=False)
     
     async def _handle_web_search_tool(
         self,
@@ -578,7 +609,41 @@ class Assistant:
         t_end = timeit.default_timer()
         timings["web_search_tool"] = t_end - t_start
         capabilities_used.append(Capability.WEB_SEARCH)
-        return ToolOutput(output=output, safe_for_final_response=True)
+        return ToolOutput(text=output, safe_for_final_response=True)
+    
+    async def _handle_image_generation_tool(
+        self,
+        token_usage_by_model: Dict[str, TokenUsage],
+        capabilities_used: List[Capability],
+        timings: Dict[str, float],
+        description: str,
+        flavor_prompt: str | None,
+        message_history: List[Message],
+        image_bytes: bytes | None,
+        location_address: str | None,
+        local_time: str | None
+    ) -> ToolOutput:
+        if image_bytes is None or len(image_bytes) == 0:
+            return ToolOutput(text="I need a photo in order to generate an image.", safe_for_final_response=True)
+        t_start = timeit.default_timer()
+        image_generator = ReplicateGenerateImage()
+        image_base64 = await image_generator.generate_image(query=description, use_image=True, image_bytes=image_bytes)
+        capabilities_used.append(Capability.IMAGE_GENERATION)
+        timings["image_generation"] = timeit.default_timer() - t_start
+        return ToolOutput(text="Here is the image you requested.", safe_for_final_response=True, image_base64=image_base64)
+    
+    @staticmethod
+    def _get_image_generation_description(tool_calls: List[ChatCompletionMessageToolCall], user_prompt: str) -> Optional[str]:
+        for tool_call in tool_calls:
+            if tool_call.function.name == IMAGE_GENERATION_TOOL_NAME:
+                try:
+                    args = json.loads(tool_call.function.arguments)
+                    return args[IMAGE_GENERATION_PARAM_NAME]
+                except:
+                    # Function calling failed to produce the required parameter, just use user
+                    # prompt as a fallback
+                    return user_prompt
+        return None
 
     @staticmethod
     def _validate_tool_args(tool_call: ChatCompletionMessageToolCall) -> Dict[str, Any]:
