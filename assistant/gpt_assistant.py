@@ -654,6 +654,9 @@ class GPTAssistant(Assistant):
                         returned_response.capabilities_used.append(Capability.IMAGE_GENERATION)
                         returned_response.debug_tools = json.dumps(tools_used)
                         returned_response.image = tool_outputs[i]
+                        t1 = timeit.default_timer()
+                        timings["total_time"] = f"{t1-tstart:.3f}"
+                        returned_response.timings = json.dumps(timings)
                         return returned_response
                 if first_response_message.tool_calls[i].function.name == PHOTO_TOOL_NAME and len(first_response_message.tool_calls) == 1:  
                     returned_response.response = tool_outputs[i]
@@ -674,8 +677,11 @@ class GPTAssistant(Assistant):
                 #  don't need do new llm call
                 
                 returned_response.debug_tools = json.dumps(tools_used)
-                returned_response.timings = json.dumps(timings)
                 returned_response.image = ""
+
+                t1 = timeit.default_timer()
+                timings["total_time"] = f"{t1-tstart:.3f}"
+                returned_response.timings = json.dumps(timings)
 
                 return returned_response
             # Get final response from model

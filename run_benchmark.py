@@ -144,6 +144,8 @@ class ReportGenerator:
             pass
 
     def end_test(self, num_passed: int, num_evaluated: int):
+        if not self._generate_markdown:
+            return
         mean_time = np.mean(self._total_times)
         median_time = np.median(self._total_times)
         min_time = np.min(self._total_times)
@@ -151,8 +153,6 @@ class ReportGenerator:
         pct90_time = np.quantile(self._total_times, q=0.9)
         pct95_time = np.quantile(self._total_times, q=0.95)
         pct99_time = np.quantile(self._total_times, q=0.99)
-        if not self._generate_markdown:
-            return
         if num_evaluated == 0:
             self._fp.write(f"**Score: N/A**\n\n")
         else:
@@ -199,6 +199,7 @@ if __name__ == "__main__":
     total_user_prompts = 0
     total_tokens_in = 0
     total_tokens_out = 0
+    total_times = []
     localhost = options.endpoint == "localhost"
 
     # Run all active tests
@@ -292,9 +293,13 @@ if __name__ == "__main__":
                     if len(assistant_response) > 0:
                         history.append({ "role": "assistant", "content": assistant_response })
 
+                    timings = json.loads(mm_response.timings)
+
                     print(f"User: {user_message.text}" + (f" ({user_message.image})" if user_message.image else ""))
                     print(f"Response: {assistant_response}")
                     print(f"Tools: {mm_response.debug_tools}")
+                    print(f"Tokens: {mm_response.token_usage_by_model}")
+                    print(f"Timings: {timings}")
                     #pct_out = float(content["output_tokens"]) / float(content["total_tokens"]) * 100.0
                     #print(f"Tokens: in={content['input_tokens']}, out={content['output_tokens']} %out={pct_out:.0f}%")
                     print(f"Test: {test_result}")
@@ -304,6 +309,8 @@ if __name__ == "__main__":
                     total_user_prompts += 1
                     total_tokens_in += mm_response.input_tokens
                     total_tokens_out += mm_response.output_tokens
+
+                    total_times.append(float(timings["total_time"]))
                     
                 except Exception as e:
                     print(f"Error: {e}")
@@ -325,3 +332,22 @@ if __name__ == "__main__":
     print(f"Total output tokens: {total_tokens_out}")
     print(f"Average input tokens: {total_tokens_in / total_user_prompts}")
     print(f"Average output tokens: {total_tokens_out / total_user_prompts}")
+
+    # Timings
+    mean_time = np.mean(total_times)
+    median_time = np.median(total_times)
+    min_time = np.min(total_times)
+    max_time = np.max(total_times)
+    pct90_time = np.quantile(total_times, q=0.9)
+    pct95_time = np.quantile(total_times, q=0.95)
+    pct99_time = np.quantile(total_times, q=0.99)
+    print("")
+    print("Timing")
+    print("------")
+    print(f"Mean  : {mean_time:.1f}")
+    print(f"Median: {median_time:.1f}")
+    print(f"Min   : {min_time:.1f}")
+    print(f"Max   : {max_time:.1f}")
+    print(f"90%   : {pct90_time:.1f}")
+    print(f"95%   : {pct95_time:.1f}")
+    print(f"99%   : {pct99_time:.1f}")
