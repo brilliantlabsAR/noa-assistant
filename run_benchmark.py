@@ -201,6 +201,7 @@ if __name__ == "__main__":
     total_tokens_in = 0
     total_tokens_out = 0
     localhost = options.endpoint == "localhost"
+    total_times = []
 
     # Run all active tests
     for test in tests:
@@ -300,6 +301,7 @@ if __name__ == "__main__":
                     report.add_result(user_message=user_message, response=mm_response, assistant_response=assistant_response, test_result=test_result)
 
                     total_user_prompts += 1
+                    total_times.append(mm_response.timings["total"])
                     
                 except Exception as e:
                     print(f"Error: {e}")
@@ -317,3 +319,23 @@ if __name__ == "__main__":
 
     # Summary
     print(f"User messages: {total_user_prompts}")
+
+    # Timings
+    mean_time = np.mean(total_times)
+    median_time = np.median(total_times)
+    min_time = np.min(total_times)
+    max_time = np.max(total_times)
+    pct90_time = np.quantile(total_times, q=0.9)
+    pct95_time = np.quantile(total_times, q=0.95)
+    pct99_time = np.quantile(total_times, q=0.99)
+    print("")
+    print("Timing")
+    print("------")
+    print(f"Mean  : {mean_time:.1f}")
+    print(f"Median: {median_time:.1f}")
+    print(f"Min   : {min_time:.1f}")
+    print(f"Max   : {max_time:.1f}")
+    print(f"90%   : {pct90_time:.1f}")
+    print(f"95%   : {pct95_time:.1f}")
+    print(f"99%   : {pct99_time:.1f}")
+
