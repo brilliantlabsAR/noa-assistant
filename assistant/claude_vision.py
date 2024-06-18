@@ -1,3 +1,9 @@
+#
+# claude_vision.py
+#
+# Claude-based vision tool.
+#
+
 from typing import Dict, Optional
 
 import anthropic

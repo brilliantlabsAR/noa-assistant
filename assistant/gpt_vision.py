@@ -1,3 +1,9 @@
+#
+# gpt_vision.py
+#
+# GPT-4-based vision tool.
+#
+
 from typing import Dict, Optional
 
 import openai

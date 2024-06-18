@@ -3,10 +3,6 @@
 #
 # Assistant class and response object.
 #
-# TODO:
-# -----
-# - Image generation
-#
 
 import asyncio
 import base64
