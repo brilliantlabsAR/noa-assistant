@@ -42,6 +42,7 @@ class MultimodalRequest(BaseModel):
     generate_image_service: Optional[GenerateImageService] = GenerateImageService.REPLICATE
     openai_key: Optional[str] = None
     perplexity_key: Optional[str] = None
+    testing_mode: Optional[bool] = False
 
 class MultimodalResponse(BaseModel):
     user_prompt: str
