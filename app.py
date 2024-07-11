@@ -96,7 +96,7 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
         # Instantiate a new assistant if either Perplexity API key or OpenAI key is supplied
         user_perplexity_key: Optional[str] = mm.perplexity_key if mm.perplexity_key is not None and len(mm.perplexity_key) > 0 else None
         perplexity_key = PERPLEXITY_API_KEY if user_perplexity_key is None else user_perplexity_key
-        assistant = request.app.state.assistant if user_openai_key is None and user_perplexity_key is None else Assistant(openai_client=openai_client, perplexity_api_key=perplexity_key)
+        assistant = request.app.state.assistant if user_openai_key is None  else Assistant(openai_client, None, perplexity_key, AssistantVisionTool.GPT4O)
 
         # Transcribe voice prompt if it exists
         voice_prompt = ""
@@ -171,6 +171,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--vision-tool", action="store", default="gpt-4o", choices=list(vision_tool_from_arg.keys()), help="Vision tool to use (gpt-4o or haiku)")
     parser.add_argument("--location", action="store", default="San Francisco", help="Set location address used for all queries (e.g., \"San Francisco\")")
+    parser.add_argument("--server", action="store_true", help="Start server")
     options = parser.parse_args()
     app.state.openai_client = openai.AsyncOpenAI()
     app.state.anthropic_client = anthropic.AsyncAnthropic()
