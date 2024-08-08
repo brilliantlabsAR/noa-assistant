@@ -32,7 +32,7 @@ from util import detect_media_type
 
 MODEL = "gpt-4o"
 
-
+# MODEL = "gpt-4o-mini"
 ####################################################################################################
 # Prompts
 ####################################################################################################
@@ -560,7 +560,7 @@ class Assistant:
         timings["vision_tool"] = t_end - t_start
         capabilities_used.append(Capability.VISION)
 
-        if output.web_query is None:
+        if output.web_query is None or output.web_query == "":
             # We never allow vision tool to be final response because it does not have sufficient
             # context to answer on its own
             return ToolOutput(text=output.response, safe_for_final_response=False)    

@@ -14,6 +14,7 @@ from .vision_tool_output import VisionToolOutput
 
 
 MODEL = "gpt-4o"
+# MODEL = "gpt-4o-mini"
 
 SYSTEM_MESSAGE = """
 You are Noa, a smart personal AI assistant inside the user's AR smart glasses that answers all user
@@ -34,7 +35,7 @@ reverse_image_search: (Bool) True if your web query from description is insuffic
 
 class VisionResponse(BaseModel):
     response: str
-    web_query: Optional[str] = None
+    web_query: Optional[str] = ""
     reverse_image_search: Optional[bool] = None
 
 
@@ -86,7 +87,7 @@ async def vision_query_gpt(
         print(f"Error: Unable to parse vision response: {e}")
         return VisionToolOutput(
             is_error=True,
-            response="Error: Unable to parse vision tool response. Tell user a problem interpreting the image occurred and ask them to try again.",
+            response="Couldn't interpret the image. Please try again.",
             web_query=None
         )
 

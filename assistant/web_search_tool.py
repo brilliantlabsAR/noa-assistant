@@ -50,7 +50,7 @@ class WebSearchTool:
             self._session.detach()
 
     async def _lazy_init(self):
-        if self._session is None:
+        if self._session is None or self._session.closed:
             # This instantiation must happen inside of an async event loop
             self._session = aiohttp.ClientSession()
     
@@ -89,27 +89,43 @@ class WebSearchTool:
         async with self._session.post(url=url, json=payload, headers=headers) as response:
             if response.status != 200:
                 print(f"Failed to get response from Perplexity: {await response.text()}")
-                return "Error: Web search failed. Inform the user that they should try again."
+                return "Web search failed. Please try again."
             
             # Stream out response
             accumulated_response = ""
             usage = None
             t_first = None
+            error = False
             async for line in response.content.iter_any():
                 # Decode chunk from Perplexity
-                json_chunk = line.decode("utf-8").split("data: ")[1].strip()
                 try:
+                    json_chunk = line.decode("utf-8").split("data: ")[1].strip()
+
                     chunk = PerplexityResponse.model_validate_json(json_chunk)
+                    if t_first is None:
+                        t_first = timeit.default_timer()
+                    
+                    # Accumulate response
+                    accumulated_response = chunk.choices[0].message.content
+                    usage = chunk.usage
                 except Exception as e:
-                    print(f"Error: Unable to decode chunk from Perplexity: {e}, chunk={json_chunk}")
-                    return "Error: Web search failed. Inform the user they should try again."
+                    print(f"Error: Unable to decode chunk from Perplexity: {e}, chunk={line.decode('utf-8')}")
+                    error = True
+                    # return "Error: Web search failed. Inform the user they should try again."
                 
-                if t_first is None:
-                    t_first = timeit.default_timer()
-                
-                # Accumulate response
-                accumulated_response = chunk.choices[0].message.content
-                usage = chunk.usage
+            if error:
+                # request again without stream
+                payload["stream"] = False
+                async with  self._session.post(url=url, json=payload, headers=headers) as response:
+                    if response.status != 200:
+                        return "Web search failed. Please try again."
+                    try:
+                        response_json = await response.json()
+                        accumulated_response = response_json["choices"][0]["message"]["content"]
+                        usage = CompletionUsage(**response_json["usage"])
+                    except Exception as e:
+                        print(e)
+                        return "Web seacrh failed. Please try again."
 
             # Timings
             t_end = timeit.default_timer()
@@ -121,7 +137,9 @@ class WebSearchTool:
             # Accumulate token count
             if usage is not None:
                 accumulate_token_usage(token_usage_by_model=token_usage_by_model, usage=usage, model=MODEL)
-
+            if self._session:
+                await self._session.close()
+                self._session = None
             # Return final, accumulated response
             return accumulated_response
    
