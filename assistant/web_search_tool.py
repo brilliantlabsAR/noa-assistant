@@ -67,7 +67,7 @@ class WebSearchTool:
         await self._lazy_init()
 
         message_history = self._prune_history(message_history=message_history)
-
+        # make sure user and assistant messages are alternating
         messages = [
             Message(role=Role.SYSTEM, content=self._system_message(flavor_prompt=flavor_prompt, location=location))
         ] + message_history + [
@@ -182,5 +182,14 @@ class WebSearchTool:
         message_history.reverse()
         message_history = [ message for message in message_history if message.role != Role.SYSTEM ]
         message_history = message_history[0:max_messages]
+        # make sure user and assistant messages are alternating
+        user_message = False
+        for message in message_history[:]:
+            if user_message and message.role == Role.USER:
+                user_message = False
+            elif not user_message and message.role == Role.ASSISTANT:
+                user_message = True
+            else:
+                message_history.remove(message)
         message_history.reverse()
         return message_history
