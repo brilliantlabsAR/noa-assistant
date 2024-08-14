@@ -14,7 +14,7 @@ from .vision_tool_output import VisionToolOutput
 
 
 MODEL = "claude-3-haiku-20240307"
-
+# MODEL = "claude-3-5-sonnet-20240620"
 SYSTEM_MESSAGE = """
 You are Noa, a smart personal AI assistant inside the user's AR smart glasses that answers all user
 queries and questions. You have access to a photo from the smart glasses camera of what the user was
