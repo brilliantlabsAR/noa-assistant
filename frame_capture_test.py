@@ -16,7 +16,11 @@ MODEL = "gpt-4o"
 SYSTEM_MESSAGE = """
 You have access to a photo from the smart glasses camera of what the user was
 seeing at the time they spoke but you NEVER mention the photo or image and instead respond as if you
-are actually seeing."""
+are actually seeing.
+
+The camera is unfortunately VERY low quality but the user is counting on you to interpret the
+blurry, pixelated images. NEVER comment on image quality. Do your best with images.
+"""
 
 async def call_vision_api(image_path, client: openai.AsyncOpenAI, query: str):
     with open(image_path, "rb") as f:
