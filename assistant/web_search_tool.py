@@ -65,7 +65,6 @@ class WebSearchTool:
     ) -> str:
         t_start = timeit.default_timer()
         await self._lazy_init()
-
         message_history = self._prune_history(message_history=message_history)
         # make sure user and assistant messages are alternating
         messages = [
@@ -118,13 +117,15 @@ class WebSearchTool:
                 payload["stream"] = False
                 async with  self._session.post(url=url, json=payload, headers=headers) as response:
                     if response.status != 200:
-                        return "Web search failed. Please try again."
+                        self._session.close()
+                        raise Exception(f"Failed to get response from Perplexity: {await response.text()}")
                     try:
                         response_json = await response.json()
                         accumulated_response = response_json["choices"][0]["message"]["content"]
                         usage = CompletionUsage(**response_json["usage"])
                     except Exception as e:
-                        print(e)
+                        self._session.close()
+                        raise e
                         return "Web seacrh failed. Please try again."
 
             # Timings
@@ -183,13 +184,39 @@ class WebSearchTool:
         message_history = [ message for message in message_history if message.role != Role.SYSTEM ]
         message_history = message_history[0:max_messages]
         # make sure user and assistant messages are alternating
-        user_message = False
-        for message in message_history[:]:
-            if user_message and message.role == Role.USER:
-                user_message = False
-            elif not user_message and message.role == Role.ASSISTANT:
-                user_message = True
-            else:
-                message_history.remove(message)
         message_history.reverse()
+        message_history = WebSearchTool.make_alternating(messages=message_history)
         return message_history
+    
+    @staticmethod
+    def make_alternating(messages: List[Message]) -> List[Message]:
+        """
+        Ensure that the messages are alternating between user and assistant.
+        """
+        # Start with the first message's role
+        if len(messages) == 0:
+            return []
+        expected_role = messages[0].role
+        last_message = messages[-1]
+        alternating_messages = []
+        expected_role = "user" if expected_role == "assistant" else "assistant"
+        
+        for i, message in enumerate(messages):
+            if message.content.strip()=='':
+                continue
+            if message.role != expected_role:
+                continue
+            
+            alternating_messages.append(message)
+            expected_role = "assistant" if expected_role == "user" else "user"
+        
+        # Ensure the last message is from the user
+        if alternating_messages and alternating_messages[-1].role != "assistant":
+            if last_message.role == "assistant":
+                alternating_messages.append(last_message)
+            else:
+                alternating_messages.pop()
+        # if first message is from assistant, remove it
+        if alternating_messages and alternating_messages[0].role == "assistant":
+            alternating_messages.pop(0)
+        return alternating_messages
