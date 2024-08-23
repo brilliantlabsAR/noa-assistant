@@ -17,9 +17,8 @@ from fastapi.encoders import jsonable_encoder
 import openai
 from pydantic import BaseModel, ValidationError
 from pydub import AudioSegment
-
 from models import MultimodalRequest, MultimodalResponse
-from util import process_image
+from util import process_image, is_speech_present
 from assistant import Assistant, AssistantVisionTool
 
 
@@ -109,14 +108,23 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
                 filepath = get_next_filename()
                 with open(filepath, "wb") as f:
                     f.write(audio_bytes)
-            voice_prompt = await transcribe(client=openai_client, audio_bytes=audio_bytes)
+            if is_speech_present(audio_bytes):
+                voice_prompt = await transcribe(client=openai_client, audio_bytes=audio_bytes)
 
         # Construct final prompt
         if mm.prompt is None or len(mm.prompt) == 0 or mm.prompt.isspace() or mm.prompt == "":
             user_prompt = voice_prompt
         else:
             user_prompt = mm.prompt + " " + voice_prompt
-
+        if user_prompt.strip()=="":
+            return MultimodalResponse(
+                user_prompt=user_prompt,
+                response="Could not hear you! can you try again?",
+                image="",
+                token_usage_by_model={},
+                capabilities_used=[],
+                timings={}
+            )
         # Image data
         image_bytes = (await image.read()) if image else None
         # preprocess image
