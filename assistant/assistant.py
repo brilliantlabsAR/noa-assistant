@@ -545,7 +545,8 @@ class Assistant:
                 token_usage_by_model=token_usage_by_model,
                 query=query,
                 image_base64=image_base64,
-                media_type=media_type
+                media_type=media_type,
+                message_history=message_history,
             )
         else:
             output = await vision_query_claude(
@@ -553,7 +554,8 @@ class Assistant:
                 token_usage_by_model=token_usage_by_model,
                 query=query,
                 image_base64=image_base64,
-                media_type=media_type
+                media_type=media_type,
+                message_history=message_history,
             )
 
         t_end = timeit.default_timer()

@@ -34,3 +34,4 @@ groq
 opencv-python
 webrtcvad
 numpy
+python-dotenv

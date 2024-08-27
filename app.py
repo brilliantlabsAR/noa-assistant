@@ -20,7 +20,8 @@ from pydub import AudioSegment
 from models import MultimodalRequest, MultimodalResponse
 from util import process_image, is_speech_present
 from assistant import Assistant, AssistantVisionTool
-
+from dotenv import load_dotenv
+load_dotenv()
 
 ####################################################################################################
 # Configuration
