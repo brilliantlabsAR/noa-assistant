@@ -293,6 +293,17 @@ class ImageProcessor:
             else:
                 return cv2.imencode('.jpg', self.filtered_image)[1].tobytes()
         return None
+    
+def is_blurry_image(image: bytes, threshold: float = 10.0) -> bool:
+    """
+    Check if an image is blurry using the Laplacian method.
+    """
+    nparr = np.frombuffer(image, np.uint8)
+    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    laplacian = cv2.Laplacian(gray, cv2.CV_64F).var()
+    print("Laplacian variance: ", laplacian)
+    return laplacian < threshold
 
 def process_image(bytes: bytes)->bytes:
     filters: List[BaseFilter] = [

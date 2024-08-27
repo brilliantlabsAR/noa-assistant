@@ -60,6 +60,7 @@ CONTEXT_SYSTEM_MESSAGE_PREFIX = "## Additional context about the user:"
 SEARCH_TOOL_NAME = "web_search"
 VISION_TOOL_NAME = "analyze_photo"
 QUERY_PARAM_NAME = "query"
+TOPIC_CHNAGED_PARAM_NAME = "topic_changed"
 
 IMAGE_GENERATION_TOOL_NAME = "generate_image"
 IMAGE_GENERATION_PARAM_NAME = "description"
@@ -69,7 +70,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": SEARCH_TOOL_NAME,
-            "description": """Up-to-date information on news, retail products, current events, local conditions, and esoteric knowledge""",
+            "description": """Up-to-date information on news, retail products, current events, local conditions, and esoteric knowledge. performs a web search based on the user's query.""",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -77,8 +78,12 @@ TOOLS = [
                         "type": "string",
                         "description": "search query",
                     },
+                    TOPIC_CHNAGED_PARAM_NAME: {
+                        "type": "boolean",
+                        "description": "Whether the topic has changed since the last query"
+                    },
                 },
-                "required": [ QUERY_PARAM_NAME ]
+                "required": [ QUERY_PARAM_NAME , TOPIC_CHNAGED_PARAM_NAME ]
             },
         },
     },
@@ -95,8 +100,12 @@ Use this tool if user refers to something not identifiable from conversation con
                         "type": "string",
                         "description": "User's query to answer expressed as a command that NEVER refers to the photo or image itself"
                     },
+                    TOPIC_CHNAGED_PARAM_NAME: {
+                        "type": "boolean",
+                        "description": "Whether the topic has changed since the last query"
+                    },
                 },
-                "required": [ QUERY_PARAM_NAME ]
+                "required": [ QUERY_PARAM_NAME , TOPIC_CHNAGED_PARAM_NAME ]
             },
         },
     },
@@ -338,7 +347,7 @@ class Assistant:
         tool_call = ChatCompletionMessageToolCall(
             id="speculative_web_search_tool",
             function=Function(
-                arguments=json.dumps({ "query": query }),
+                arguments=json.dumps({ "query": query, "topic_changed": False }),
                 name=SEARCH_TOOL_NAME
             ),
             type="function"
@@ -529,7 +538,8 @@ class Assistant:
         message_history: List[Message],
         image_bytes: bytes | None,
         location_address: str | None,
-        local_time: str | None
+        local_time: str | None,
+        topic_changed: bool | None = None
     ) -> ToolOutput:
         t_start = timeit.default_timer()
 
@@ -538,14 +548,17 @@ class Assistant:
         if image_bytes:
             image_base64 = base64.b64encode(image_bytes).decode("utf-8")
             media_type = detect_media_type(image_bytes=image_bytes)
-
+        
+        extra_context = CONTEXT_SYSTEM_MESSAGE_PREFIX + "\n".join([ f"<{key}>{value}</{key}>" for key, value in { "location": location_address, "current_time": local_time }.items() if value is not None ])
         if self._vision_tool == AssistantVisionTool.GPT4O:
             output = await vision_query_gpt(
                 client=self._client,
                 token_usage_by_model=token_usage_by_model,
                 query=query,
                 image_base64=image_base64,
-                media_type=media_type
+                media_type=media_type,
+                message_history= [] if topic_changed  else message_history,
+                extra_context=extra_context
             )
         else:
             output = await vision_query_claude(
@@ -553,7 +566,9 @@ class Assistant:
                 token_usage_by_model=token_usage_by_model,
                 query=query,
                 image_base64=image_base64,
-                media_type=media_type
+                media_type=media_type,
+                message_history= [] if topic_changed  else message_history,
+                extra_context=extra_context
             )
 
         t_end = timeit.default_timer()
@@ -574,10 +589,10 @@ class Assistant:
             timings=timings,
             query=output.web_query,
             flavor_prompt=flavor_prompt,
-            message_history=message_history,
+            message_history=[],
             image_bytes=None,
             location_address=location_address,
-            local_time=local_time
+            local_time=local_time,
         )
         return ToolOutput(text=f"HERE IS WHAT YOU SEE: {output.response}\nEXTRA INFO FROM WEB: {web_result}", safe_for_final_response=False)
     
@@ -591,7 +606,8 @@ class Assistant:
         message_history: List[Message],
         image_bytes: bytes | None,
         location_address: str | None,
-        local_time: str | None
+        local_time: str | None,
+        topic_changed: bool | None = None
     ) -> ToolOutput:
         t_start = timeit.default_timer()
         output = await self._web_tool.search_web(
@@ -599,7 +615,7 @@ class Assistant:
             timings=timings,
             query=query,
             flavor_prompt=flavor_prompt,
-            message_history=message_history,
+            message_history=[] if topic_changed else message_history,
             location=location_address
         )
         t_end = timeit.default_timer()
@@ -649,6 +665,7 @@ class Assistant:
         args: Dict[str, Any] = {}
         try:
             args = json.loads(tool_call.function.arguments)
+            print(f"Tool arguments: {args}")
         except:
             pass
         for param_name in list(args.keys()):

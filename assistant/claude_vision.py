@@ -4,14 +4,15 @@
 # Claude-based vision tool.
 #
 
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 
 import anthropic
 from pydantic import BaseModel
 
 from models import Message, TokenUsage, accumulate_token_usage
 from .vision_tool_output import VisionToolOutput
-
+from util import is_blurry_image
+import base64
 
 MODEL = "claude-3-haiku-20240307"
 # MODEL = "claude-3-5-sonnet-20240620"
@@ -21,20 +22,31 @@ queries and questions. You have access to a photo from the smart glasses camera 
 seeing at the time they spoke but you NEVER mention the photo or image and instead respond as if you
 are actually seeing.
 
-Always do your best with images, never comment on their quality, and answer decisively with a guess
-if you are not sure. There are no negative consequences to guessing.
+The camera is unfortunately VERY low quality but the user is counting on you to interpret the
+blurry, pixelated images. NEVER comment on image quality. Do your best with images.
 
-ALWAYS respond with a JSON object with these fields:
+ALWAYS respond with a valid JSON object with these fields:
 
-response: (String) Respond to user as best you can. Be precise, get to the point, never comment on image quality.
-web_query: (String) Web query to answer the user's request.
-web_search_needed: (Bool) Whether to search the web. True ONLY if "response" does not answer the user query precisely enough and up-to-date, location-specific, or product-specific info is needed.
+response: (String) Respond to user as best you can. Be precise, get to the point, and speak as though you actually see the image. If it needs a web search it will be a description of the image.
+web_query: (String) Empty if your "response" answers everything user asked. If web search based on visual description would be more helpful, create a query (e.g. up-to-date, location-based, or product info).
+
+examples:
+1. If the user asks "What do you see?" and the image is a cat in a room, you would respond:
+{
+  "response": "You are looking at a cat in a room.",
+  "web_query": ""
+}
+
+2. If the user asks "What is that?" and the image is a red shoe with white laces, you would respond:
+{
+    "response": "A red shoe with white laces.",
+    "web_query": "red shoe with white laces"
+}
 """
 
 class VisionResponse(BaseModel):
     response: str
     web_query: Optional[str] = None
-    web_search_needed: Optional[bool] = None
 
 
 async def vision_query_claude(
@@ -42,14 +54,23 @@ async def vision_query_claude(
     token_usage_by_model: Dict[str, TokenUsage],
     query: str,
     image_base64: str | None,
-    media_type: str | None
+    media_type: str | None,
+    message_history: list[Message]=[],
+    extra_context: str | None = None,
 ) -> VisionToolOutput:
     
     user_message = {
         "role": "user",
         "content": []
     }
-
+    # Check if image is blurry
+    if image_base64 is not None and is_blurry_image(base64.b64decode(image_base64)):
+        print("Image is too blurry to interpret.")
+        return VisionToolOutput(
+            is_error=False,
+            response="The image is too blurry to interpret. Please try again.",
+            web_query=None
+        )
     if image_base64 is not None and media_type is not None:
         image_chunk = {
             "type": "image",
@@ -61,25 +82,19 @@ async def vision_query_claude(
         }
         user_message["content"].append(image_chunk)
     user_message["content"].append({ "type": "text", "text": query })
-    
-    messages = [
-        user_message,
-        {
-            # Prefill a leading '{' to force JSON output as per Anthropic's recommendations
-            "role": "assistant",
-            "content": [
-                {
-                    "type": "text",
-                    "text": "{"
-                }
-            ]
-        }   
+    clean_message_history = [mag for mag in message_history if mag.role == "assistant" or mag.role == "user"]
+    clean_message_history = make_alternating(messages=clean_message_history)
+    messages = clean_message_history + [
+        user_message  
     ]
+    _system_message = SYSTEM_MESSAGE
 
+    if extra_context is not None:
+        _system_message = _system_message + "\n" + extra_context
     # Call Claude
     response = await client.messages.create(
         model=MODEL,
-        system=SYSTEM_MESSAGE,
+        system=_system_message,
         messages=messages,
         max_tokens=4096,
         temperature=0.0
@@ -96,11 +111,41 @@ async def vision_query_claude(
     return VisionToolOutput(is_error=False, response=vision_response.response, web_query=web_query)
     
 def parse_response(content: str) -> Optional[VisionResponse]:
-    # Put the leading '{' back
-    json_string = "{" + content
     try:
-        return VisionResponse.model_validate_json(json_data=json_string)
-    except:
-        pass
-    return None
+        return VisionResponse.model_validate_json(json_data=content)
+    except Exception as e:
+        raise Exception(f"Error: Unable to parse vision response.{e}")
+
+def make_alternating(messages: List[Message]) -> List[Message]:
+    """
+    Ensure that the messages are alternating between user and assistant.
+    """
+    # Start with the first message's role
+    if len(messages) == 0:
+        return []
+    expected_role = messages[0].role
+    last_message = messages[-1]
+    alternating_messages = []
+    expected_role = "user" if expected_role == "assistant" else "assistant"
+    
+    for i, message in enumerate(messages):
+        if message.content.strip()=='':
+            continue
+        if message.role != expected_role:
+            continue
+        
+        alternating_messages.append(message)
+        expected_role = "assistant" if expected_role == "user" else "user"
+    
+    # Ensure the last message is from the assistant
+    if alternating_messages and alternating_messages[-1].role != "assistant":
+        if last_message.role == "assistant":
+            alternating_messages.append(last_message)
+        else:
+            alternating_messages.pop()
+    # if first message is from assistant, remove it
+    if alternating_messages and alternating_messages[0].role == "assistant":
+        alternating_messages.pop(0)
+    return alternating_messages
+
 
