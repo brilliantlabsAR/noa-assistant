@@ -50,7 +50,6 @@ examples:
 class VisionResponse(BaseModel):
     response: str
     web_query: Optional[str] = ""
-    reverse_image_search: Optional[bool] = None
 
 
 async def vision_query_gpt(
@@ -60,6 +59,7 @@ async def vision_query_gpt(
     image_base64: str | None,
     media_type: str | None,
     message_history: list[Message]=[],
+    extra_context: str | None = None
 ) -> VisionToolOutput:
     # Create messages for GPT w/ image. No message history or extra context for this tool, as we
     # will rely on second LLM call. Passing in message history and extra context necessary to
@@ -79,10 +79,15 @@ async def vision_query_gpt(
         ]
     }
     clean_message_history = [m for m in message_history if m.role == "user" or m.role == "assistant"]
+    
+    _system_message = SYSTEM_MESSAGE
+
+    if extra_context is not None:
+        _system_message = _system_message + "\n" + extra_context
     if image_base64 is not None and media_type is not None:
         user_message["content"].append({ "type": "image_url", "image_url": { "url": f"data:{media_type};base64,{image_base64}" } })
     messages = [
-        { "role": "system", "content": SYSTEM_MESSAGE },
+        { "role": "system", "content": _system_message },
     ] + clean_message_history + [user_message]
 
     # Call GPT

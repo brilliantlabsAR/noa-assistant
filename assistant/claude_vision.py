@@ -47,7 +47,6 @@ examples:
 class VisionResponse(BaseModel):
     response: str
     web_query: Optional[str] = None
-    web_search_needed: Optional[bool] = None
 
 
 async def vision_query_claude(
@@ -56,7 +55,8 @@ async def vision_query_claude(
     query: str,
     image_base64: str | None,
     media_type: str | None,
-    message_history: list[Message]=[]
+    message_history: list[Message]=[],
+    extra_context: str | None = None,
 ) -> VisionToolOutput:
     
     user_message = {
@@ -87,11 +87,14 @@ async def vision_query_claude(
     messages = clean_message_history + [
         user_message  
     ]
+    _system_message = SYSTEM_MESSAGE
 
+    if extra_context is not None:
+        _system_message = _system_message + "\n" + extra_context
     # Call Claude
     response = await client.messages.create(
         model=MODEL,
-        system=SYSTEM_MESSAGE,
+        system=_system_message,
         messages=messages,
         max_tokens=4096,
         temperature=0.0
@@ -101,7 +104,6 @@ async def vision_query_claude(
 
     # Parse response
     vision_response = parse_response(content=response.content[0].text)
-    print(f"Vision response: {vision_response}")
     if vision_response is None:
         return VisionToolOutput(is_error=True, response="Error: Unable to parse vision tool response. Tell user a problem interpreting the image occurred and ask them to try again.", web_query=None)
     web_search_needed = vision_response.web_search_needed and vision_response.web_query is not None and len(vision_response.web_query) > 0
@@ -111,9 +113,8 @@ async def vision_query_claude(
 def parse_response(content: str) -> Optional[VisionResponse]:
     try:
         return VisionResponse.model_validate_json(json_data=content)
-    except:
-        pass
-    return None
+    except Exception as e:
+        raise Exception(f"Error: Unable to parse vision response.{e}")
 
 def make_alternating(messages: List[Message]) -> List[Message]:
     """
