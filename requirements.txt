@@ -12,7 +12,7 @@ h11==0.14.0
 httpcore==1.0.2
 httpx==0.25.2
 idna==3.7
-openai==1.30.5
+openai==1.42.0
 pydantic==2.5.2
 pydantic_core==2.14.5
 pydub==0.25.1
@@ -22,7 +22,7 @@ serpapi==0.1.5
 sniffio==1.3.0
 starlette~=0.36.2
 tqdm==4.66.1
-typing_extensions==4.8.0
+typing_extensions==4.11
 urllib3==2.1.0
 uule-grabber==0.1.9
 uvicorn==0.27.0.post1

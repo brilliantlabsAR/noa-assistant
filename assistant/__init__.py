@@ -1,2 +1,2 @@
-from .assistant import Assistant, AssistantVisionTool
+from .new_assitant import Assistant, AssistantVisionTool
 from .response import AssistantResponse
