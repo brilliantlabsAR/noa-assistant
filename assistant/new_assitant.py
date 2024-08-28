@@ -84,70 +84,7 @@ TOPIC_CHNAGED_PARAM_NAME = "topic_changed"
 IMAGE_GENERATION_TOOL_NAME = "generate_image"
 IMAGE_GENERATION_PARAM_NAME = "description"
 
-TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": SEARCH_TOOL_NAME,
-            "description": """Up-to-date information on news, retail products, current events, local conditions, and esoteric knowledge. performs a web search based on the user's query.""",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    QUERY_PARAM_NAME: {
-                        "type": "string",
-                        "description": "search query",
-                    },
-                    TOPIC_CHNAGED_PARAM_NAME: {
-                        "type": "boolean",
-                        "description": "Whether the topic has changed since the last query"
-                    },
-                },
-                "required": [ QUERY_PARAM_NAME , TOPIC_CHNAGED_PARAM_NAME ]
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": VISION_TOOL_NAME,
-            "description": """Analyzes or describes the photo you have from the user's current perspective.
-Use this tool if user refers to something not identifiable from conversation context, such as with a demonstrative pronoun.""",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    QUERY_PARAM_NAME: {
-                        "type": "string",
-                        "description": "User's query to answer expressed as a command that NEVER refers to the photo or image itself"
-                    },
-                    TOPIC_CHNAGED_PARAM_NAME: {
-                        "type": "boolean",
-                        "description": "Whether the topic has changed since the last query"
-                    },
-                },
-                "required": [ QUERY_PARAM_NAME , TOPIC_CHNAGED_PARAM_NAME ]
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": IMAGE_GENERATION_TOOL_NAME,
-            "description": """Generates an image based on a description or prompt.""",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    IMAGE_GENERATION_PARAM_NAME: {
-                        "type": "string",
-                        "description": "description of the image to generate"
-                    },
-                },
-                "required": [ IMAGE_GENERATION_PARAM_NAME ]
-            },
-        },
-    }
-] 
-
-tool_function_names = [ tool["function"]["name"] for tool in TOOLS ]
+####################################################################################################
 
 @dataclass
 class ToolOutput:
@@ -169,6 +106,7 @@ class WebSearch(BaseModel):
 class AnalyzePhoto(BaseModel):
     """
     Analyzes or describes the photo you have from the user's current perspective.
+    Use this tool if user refers to something not identifiable from conversation context, such as with a demonstrative pronoun.
     """
     query: str
     topic_changed: bool
@@ -516,7 +454,7 @@ class Assistant:
         if tool_call.function.name not in tool_functions_by_name:
             print(f"Error: Hallucinated tool: {tool_call.function.name}")
             return asyncio.create_task(self._return_tool_error_message(message="Error: you hallucinated a tool that doesn't exist. Tell user you had trouble interpreting the request and ask them to rephrase it."))
-        args: Dict[str, Any] | None = self._validate_tool_args(tool_call=tool_call)
+        args: Dict[str, Any] | None = json.loads(tool_call.function.arguments)
         if args is None:
             return asyncio.create_task(self._return_tool_error_message(message="Error: you failed to use a required parameter. Tell user you had trouble interpreting the request and ask them to rephrase it."))
 
@@ -674,39 +612,6 @@ class Assistant:
                     # prompt as a fallback
                     return user_prompt
         return None
-
-    @staticmethod
-    def _validate_tool_args(tool_call: ChatCompletionMessageToolCall) -> Dict[str, Any]:
-        # Parse arguments and ensure they are all str or bool for now. Drop any that aren't.
-        function_description = [ description for description in TOOLS if description["function"]["name"] == tool_call.function.name ][0]
-        function_parameters = function_description["function"]["parameters"]["properties"]
-        args: Dict[str, Any] = {}
-        try:
-            args = json.loads(tool_call.function.arguments)
-            print(f"Tool arguments: {args}")
-        except:
-            pass
-        for param_name in list(args.keys()):
-            if param_name not in function_parameters:
-                # GPT hallucinated a parameter
-                del args[param_name]
-                continue
-            if function_parameters[param_name]["type"] == "string" and type(args[param_name]) != str:
-                del args[param_name]
-                continue
-            if function_parameters[param_name]["type"] == "boolean" and type(args[param_name]) != bool:
-                del args[param_name]
-                continue
-            if function_parameters[param_name]["type"] not in [ "string", "boolean" ]:
-                # Need to keep this up to date with the tools we define
-                raise ValueError(f"Unsupported tool parameter type: {function_parameters[param_name]['type']}")
-        
-        # Ensure all required params are present
-        for param_name in function_parameters:
-            if param_name not in args:
-                return None
-            
-        return args
 
     @staticmethod
     def _cancel_tasks(task_by_tool_name: Dict[str, asyncio.Task[ToolOutput]]):
