@@ -12,32 +12,10 @@ from openai.types.completion_usage import CompletionUsage
 from pydantic import BaseModel
 
 from models import Role, Message, TokenUsage, accumulate_token_usage
+from .models import PerplexityResponse, MessageChoices, PerplexityMessage, SYSTEM_MESSAGE_WEB
 
 MODEL = "llama-3-sonar-small-32k-online"
 
-class PerplexityMessage(BaseModel):
-    role: str = None
-    content: str = None
-
-class MessageChoices(BaseModel):
-    index: int = None
-    finish_reason: str | None = None
-    message: PerplexityMessage = None
-    delta: PerplexityMessage = None
-
-class PerplexityResponse(BaseModel):
-    id: str = None
-    model: str = None
-    created: int = None
-    usage: CompletionUsage = None
-    object: str = None
-    choices: List[MessageChoices] = None
-    
-    def summarise(self) -> str:
-        if len(self.choices) > 0:
-            return self.choices[0].message.content
-        else:
-            return "No results"
 
 class WebSearchTool:
     def __init__(self, api_key: str):
@@ -146,11 +124,12 @@ class WebSearchTool:
    
     @staticmethod
     def _system_message(flavor_prompt: str | None, location: str | None):
+        system_message = SYSTEM_MESSAGE_WEB
         if location is None or len(location) == 0:
             location = "<you do not know user's location and if asked, tell them so>"
-        system_message = f"reply in concise and short with high accurancy from web results if needed take location as {location}"
+        system_message += f"\nreply in concise and short with high accurancy from web results if needed take location as {location}"
         if flavor_prompt is not None:
-            system_message = f"{system_message}\n{flavor_prompt}"
+            system_message = f"{flavor_prompt}\n{system_message}"
         return system_message
 
     @staticmethod

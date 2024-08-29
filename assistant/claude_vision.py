@@ -25,6 +25,11 @@ are actually seeing.
 The camera is unfortunately VERY low quality but the user is counting on you to interpret the
 blurry, pixelated images. NEVER comment on image quality. Do your best with images.
 
+It is important that the user believes you can actually see. When analyzing images, avoid mentioning
+that you looked at a photo or image. Always speak as if you are actually seeing, which means you
+should never talk about the image or photo in your wording.
+only reply in English. Don’t include markdown , emojis or new lines.
+
 ALWAYS respond with a valid JSON object with these fields:
 
 response: (String) Respond to user as best you can. Be precise, get to the point, and speak as though you actually see the image. If it needs a web search it will be a description of the image.
@@ -37,7 +42,7 @@ examples:
   "web_query": ""
 }
 
-2. If the user asks "What is that?" and the image is a red shoe with white laces, you would respond:
+2. If the user asks "where i can buy this?" and the image is a red shoe with white laces, you would respond:
 {
     "response": "A red shoe with white laces.",
     "web_query": "red shoe with white laces"
@@ -106,9 +111,7 @@ async def vision_query_claude(
     vision_response = parse_response(content=response.content[0].text)
     if vision_response is None:
         return VisionToolOutput(is_error=True, response="Error: Unable to parse vision tool response. Tell user a problem interpreting the image occurred and ask them to try again.", web_query=None)
-    web_search_needed = vision_response.web_search_needed and vision_response.web_query is not None and len(vision_response.web_query) > 0
-    web_query = vision_response.web_query if web_search_needed else None
-    return VisionToolOutput(is_error=False, response=vision_response.response, web_query=web_query)
+    return VisionToolOutput(is_error=False, response=vision_response.response, web_query=vision_response.web_query)
     
 def parse_response(content: str) -> Optional[VisionResponse]:
     try:

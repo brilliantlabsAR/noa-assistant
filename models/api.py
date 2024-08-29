@@ -52,3 +52,4 @@ class MultimodalResponse(BaseModel):
     capabilities_used: List[Capability]
     timings: Dict[str, float]
     stream_finished: bool = True
+    topic_changed: bool = False

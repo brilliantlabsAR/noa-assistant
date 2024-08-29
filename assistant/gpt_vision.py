@@ -13,43 +13,7 @@ from models import Message, TokenUsage, accumulate_token_usage
 from .vision_tool_output import VisionToolOutput
 from util import is_blurry_image
 import base64
-
-MODEL = "gpt-4o"
-# MODEL = "gpt-4o-mini"
-
-SYSTEM_MESSAGE = """
-You are Noa, a smart personal AI assistant inside the user's AR smart glasses that answers all user
-queries and questions. You have access to a photo from the smart glasses camera of what the user was
-seeing at the time they spoke but you NEVER mention the photo or image and instead respond as if you
-are actually seeing.
-
-The camera is unfortunately VERY low quality but the user is counting on you to interpret the
-blurry, pixelated images. NEVER comment on image quality. Do your best with images.
-
-ALWAYS respond with a valid JSON object with these fields:
-
-response: (String) Respond to user as best you can. Be precise, get to the point, and speak as though you actually see the image. If it needs a web search it will be a description of the image.
-web_query: (String) Empty if your "response" answers everything user asked. If web search based on visual description would be more helpful, create a query (e.g. up-to-date, location-based, or product info).
-
-examples:
-1. If the user asks "What do you see?" and the image is a cat in a room, you would respond:
-{
-  "response": "You are looking at a cat in a room.",
-  "web_query": ""
-}
-
-2. If the user asks "What is that?" and the image is a red shoe with white laces, you would respond:
-{
-    "response": "A red shoe with white laces.",
-    "web_query": "red shoe with white laces"
-}
-
-"""
-
-
-class VisionResponse(BaseModel):
-    response: str
-    web_query: Optional[str] = ""
+from .models import VISION_MODEL_GPT, SYSTEM_MESSAGE_VISION_GPT, VisionResponse
 
 
 async def vision_query_gpt(
@@ -80,7 +44,7 @@ async def vision_query_gpt(
     }
     clean_message_history = [m for m in message_history if m.role == "user" or m.role == "assistant"]
     
-    _system_message = SYSTEM_MESSAGE
+    _system_message = SYSTEM_MESSAGE_VISION_GPT
 
     if extra_context is not None:
         _system_message = _system_message + "\n" + extra_context
@@ -92,10 +56,10 @@ async def vision_query_gpt(
 
     # Call GPT
     response = await client.chat.completions.create(
-        model=MODEL,
+        model=VISION_MODEL_GPT,
         messages=messages,
     )
-    accumulate_token_usage(token_usage_by_model=token_usage_by_model, usage=response.usage, model=MODEL)
+    accumulate_token_usage(token_usage_by_model=token_usage_by_model, usage=response.usage, model=VISION_MODEL_GPT)
 
     # Parse structured output. Response expected to be JSON but may be wrapped with 
     # ```json ... ```

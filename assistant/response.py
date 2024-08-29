@@ -18,3 +18,4 @@ class AssistantResponse:
     response: str
     timings: Dict[str, float]
     image: str
+    topic_changed: bool

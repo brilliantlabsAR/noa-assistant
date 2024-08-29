@@ -124,7 +124,8 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
                 image="",
                 token_usage_by_model={},
                 capabilities_used=[],
-                timings={}
+                timings={},
+                topic_changed=False
             )
         # Image data
         image_bytes = (await image.read()) if image else None
@@ -153,7 +154,8 @@ async def api_mm(request: Request, mm: Annotated[str, Form()], audio : UploadFil
                 image=assistant_response.image,
                 token_usage_by_model=assistant_response.token_usage_by_model,
                 capabilities_used=assistant_response.capabilities_used,
-                timings=assistant_response.timings
+                timings=assistant_response.timings,
+                topic_changed=assistant_response.topic_changed
             )
         except Exception as e:
             print(f"{traceback.format_exc()}")
