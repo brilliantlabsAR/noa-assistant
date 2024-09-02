@@ -84,7 +84,7 @@ class Assistant(AssistantBase):
         messages = [Message(role=Role.SYSTEM, content=system_message_final)] + message_history + [ Message(role=Role.USER, content=prompt)]
         task_by_tool_name: Dict[str, asyncio.Task[ToolOutput]] = {}
 
-        #  start a web search tool in advance
+        # #  start a web search tool in advance
         self._create_speculative_tool_calls(
             task_by_tool_name=task_by_tool_name,
             token_usage_by_model=speculative_token_usage_by_model,
@@ -122,7 +122,9 @@ class Assistant(AssistantBase):
         if len(tool_calls) == 0:
             # No tools: return initial assistant response directly
             capabilities_used.append(Capability.ASSISTANT_KNOWLEDGE)
-            output_task = self.make_async(ToolOutput(text=initial_response_message.parsed.response, safe_for_final_response=True, topic_changed=initial_response_message.parsed.topic_changed))
+            output_task = self.make_async(ToolOutput(text=initial_response_message.parsed.response,
+                                                    safe_for_final_response=True,
+                                                     topic_changed=initial_response_message.parsed.topic_changed))
         elif image_generation_description is not None:
             # Special case: image generation
             tool_output =  self._handle_image_generation_tool(
@@ -207,12 +209,16 @@ class Assistant(AssistantBase):
         assert output.safe_for_final_response                       # final output must be safe for direct response
         self._cancel_tasks(task_by_tool_name)                       # ensure any remaining speculative tasks are killed
         timings["total"] = timeit.default_timer() - t_start
+        # round off all timings to 2 decimal places
+        for key in timings:
+            timings[key] = round(timings[key], 2)
+
         return AssistantResponse(
             token_usage_by_model=token_usage_by_model,
             capabilities_used=capabilities_used,
             response=output.text,
             timings=timings,
             image="" if output.image_base64 is None else output.image_base64,
-            topic_changed=True if topic_changed or output.topic_changed else False
+            topic_changed=True if topic_changed or output.topic_changed else False,
         )
         

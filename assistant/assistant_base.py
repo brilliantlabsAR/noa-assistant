@@ -212,7 +212,7 @@ class AssistantBase:
         image_bytes: bytes | None,
         location_address: str | None,
         local_time: str | None,
-        topic_changed: bool | None = None
+        topic_changed: bool | None = None,
     ) -> ToolOutput:
         t_start = timeit.default_timer()
 
@@ -280,7 +280,7 @@ class AssistantBase:
         image_bytes: bytes | None,
         location_address: str | None,
         local_time: str | None,
-        topic_changed: bool | None = None
+        topic_changed: bool | None = None,
     ) -> ToolOutput:
         t_start = timeit.default_timer()
         output = await self._web_tool.search_web(

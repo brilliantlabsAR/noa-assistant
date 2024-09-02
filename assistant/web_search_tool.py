@@ -45,11 +45,14 @@ class WebSearchTool:
         await self._lazy_init()
         message_history = self._prune_history(message_history=message_history)
         # make sure user and assistant messages are alternating
+        if len(message_history) > 0:
+            query = "Knowing the previous chat was:  " + message_history[-1].content + "\n" + query
         messages = [
             Message(role=Role.SYSTEM, content=self._system_message(flavor_prompt=flavor_prompt, location=location))
         ] + message_history + [
             Message(role=Role.USER, content=query)
         ]
+        print(f"Web search tool: {messages}")
 
         url = "https://api.perplexity.ai/chat/completions"
         payload = {
@@ -127,7 +130,9 @@ class WebSearchTool:
         system_message = SYSTEM_MESSAGE_WEB
         if location is None or len(location) == 0:
             location = "<you do not know user's location and if asked, tell them so>"
-        system_message += f"\nreply in concise and short with high accurancy from web results if needed take location as {location}"
+        
+        system_message = system_message.replace("[LOCATION]", location)
+        system_message += f"\nreply in concise and short with high accurancy from web results for the query"
         if flavor_prompt is not None:
             system_message = f"{flavor_prompt}\n{system_message}"
         return system_message
@@ -164,6 +169,7 @@ class WebSearchTool:
         message_history = message_history[0:max_messages]
         # make sure user and assistant messages are alternating
         message_history.reverse()
+        print(f"Pruned message history: {message_history}")
         message_history = WebSearchTool.make_alternating(messages=message_history)
         return message_history
     
@@ -172,30 +178,29 @@ class WebSearchTool:
         """
         Ensure that the messages are alternating between user and assistant.
         """
-        # Start with the first message's role
-        if len(messages) == 0:
+        if not messages:
             return []
-        expected_role = messages[0].role
-        last_message = messages[-1]
+
         alternating_messages = []
-        expected_role = "user" if expected_role == "assistant" else "assistant"
-        
-        for i, message in enumerate(messages):
-            if message.content.strip()=='':
+        expected_role = messages[0].role
+
+        for message in messages:
+            # Skip empty content messages
+            if message.content.strip() == '':
                 continue
-            if message.role != expected_role:
-                continue
-            
-            alternating_messages.append(message)
-            expected_role = "assistant" if expected_role == "user" else "user"
-        
-        # Ensure the last message is from the user
-        if alternating_messages and alternating_messages[-1].role != "assistant":
-            if last_message.role == "assistant":
-                alternating_messages.append(last_message)
-            else:
-                alternating_messages.pop()
-        # if first message is from assistant, remove it
-        if alternating_messages and alternating_messages[0].role == "assistant":
+
+            # Only add messages that match the expected role
+            if message.role == expected_role:
+                alternating_messages.append(message)
+                # Toggle the expected role for the next message
+                expected_role = Role.USER if expected_role == Role.ASSISTANT else Role.ASSISTANT
+
+        # Ensure the last message is from the assistant
+        if alternating_messages and alternating_messages[-1].role != Role.ASSISTANT:
+            alternating_messages.pop()
+
+        # If the first message is from the assistant, remove it
+        if alternating_messages and alternating_messages[0].role == Role.ASSISTANT:
             alternating_messages.pop(0)
+
         return alternating_messages
