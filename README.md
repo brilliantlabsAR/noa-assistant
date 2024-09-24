@@ -1,5 +1,5 @@
 # Noa Assistant
- This repository conatains all AI stuff of Noa that can be used in parallel with\
+ This repository contains all AI stuff of Noa that can be used in parallel with\
  a Authentication server to protect APIs and throttled usage\
 Working features:
 1. Conversational AI
