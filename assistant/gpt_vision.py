@@ -63,9 +63,18 @@ async def vision_query_gpt(
 
     # Parse structured output. Response expected to be JSON but may be wrapped with 
     # ```json ... ```
-    content = response.choices[0].message.content
-    json_start = content.find("{")
-    json_end = content.rfind("}")
+    try:
+        content = response.choices[0].message.content
+        json_start = content.find("{")
+        json_end = content.rfind("}")
+    except Exception as e:
+        print(f"Error: Unable to parse vision response: {e}")
+        return VisionToolOutput(
+            is_error=False,
+            response="Couldn't see clearly. Please try again.",
+            web_query=None
+        )
+
     json_string = content[json_start : json_end + 1] if json_start > -1 and json_end > -1 else content
     try:
         vision_response = VisionResponse.model_validate_json(json_data=json_string)

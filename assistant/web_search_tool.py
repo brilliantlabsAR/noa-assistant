@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from models import Role, Message, TokenUsage, accumulate_token_usage
 from .models import PerplexityResponse, MessageChoices, PerplexityMessage, SYSTEM_MESSAGE_WEB
 
-MODEL = "llama-3-sonar-small-32k-online"
+MODEL = "llama-3.1-sonar-small-128k-online"
 
 
 class WebSearchTool:

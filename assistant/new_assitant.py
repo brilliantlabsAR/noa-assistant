@@ -80,6 +80,9 @@ class Assistant(AssistantBase):
         using_speculative_output_task = False
 
         message_history = message_history if message_history else []
+        # take only the last 10 messages
+        if len(message_history) > 10:
+            message_history = message_history[-10:]
         system_message_final = SYSTEM_MESSAGE + "\n" + self.extra_context(flavor_prompt=flavor_prompt, location_address=location_address, local_time=local_time)
         messages = [Message(role=Role.SYSTEM, content=system_message_final)] + message_history + [ Message(role=Role.USER, content=prompt)]
         task_by_tool_name: Dict[str, asyncio.Task[ToolOutput]] = {}
