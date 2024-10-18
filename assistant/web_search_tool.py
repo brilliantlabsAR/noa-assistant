@@ -47,6 +47,8 @@ class WebSearchTool:
         # make sure user and assistant messages are alternating
         if len(message_history) > 0:
             query = "Knowing the previous chat was:  " + message_history[-1].content + "\n" + query
+        if query.strip() == "":
+            query = flavor_prompt
         messages = [
             Message(role=Role.SYSTEM, content=self._system_message(flavor_prompt=flavor_prompt, location=location))
         ] + message_history + [

@@ -33,7 +33,7 @@ async def vision_query_gpt(
     if image_base64 is not None and is_blurry_image(base64.b64decode(image_base64)):
         return VisionToolOutput(
             is_error=False,
-            response="The image is too blurry to interpret. Please try again.",
+            response="I’m having a hard time seeing the image clearly, try shifting position or lighting and try again.",
             web_query=None
         )
     user_message = {
@@ -71,7 +71,7 @@ async def vision_query_gpt(
         print(f"Error: Unable to parse vision response: {e}")
         return VisionToolOutput(
             is_error=False,
-            response="Couldn't see clearly. Please try again.",
+            response="I’m having a hard time seeing the image clearly, try shifting position or lighting and try again.",
             web_query=None
         )
 
@@ -88,7 +88,7 @@ async def vision_query_gpt(
         print(f"Error: Unable to parse vision response: {e}")
         return VisionToolOutput(
             is_error=True,
-            response="Couldn't interpret the image. Please try again.",
+            response="I’m having a hard time seeing the image clearly, try shifting position or lighting and try again.",
             web_query=None
         )
 

@@ -43,6 +43,7 @@ class MultimodalRequest(BaseModel):
     openai_key: Optional[str] = None
     perplexity_key: Optional[str] = None
     testing_mode: Optional[bool] = False
+    promptless: Optional[bool] = False
 
 class MultimodalResponse(BaseModel):
     user_prompt: str

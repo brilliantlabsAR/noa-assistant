@@ -39,7 +39,8 @@ class Assistant(AssistantBase):
         image_bytes: bytes | None,
         message_history: List[Message] | None,
         location_address: str | None,
-        local_time: str | None
+        local_time: str | None,
+        promptless: bool = False
     ):
         """
         Sends a message from user to assistant.
@@ -78,13 +79,15 @@ class Assistant(AssistantBase):
         timings: Dict[str, float] = {}
         output_task: Optional[asyncio.Task[ToolOutput]] = None
         using_speculative_output_task = False
-
         message_history = message_history if message_history else []
         # take only the last 10 messages
         if len(message_history) > 10:
             message_history = message_history[-10:]
         system_message_final = SYSTEM_MESSAGE + "\n" + self.extra_context(flavor_prompt=flavor_prompt, location_address=location_address, local_time=local_time)
-        messages = [Message(role=Role.SYSTEM, content=system_message_final)] + message_history + [ Message(role=Role.USER, content=prompt)]
+        if promptless and prompt.strip() == "":
+            messages = [Message(role=Role.SYSTEM, content=system_message_final)] + message_history + [ Message(role=Role.SYSTEM, content=flavor_prompt)]
+        else:
+            messages = [Message(role=Role.SYSTEM, content=system_message_final)] + message_history + [ Message(role=Role.USER, content=prompt)]
         task_by_tool_name: Dict[str, asyncio.Task[ToolOutput]] = {}
 
         # #  start a web search tool in advance
